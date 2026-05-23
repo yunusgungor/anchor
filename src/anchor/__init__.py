@@ -47,43 +47,21 @@ class Rule:
     
     @classmethod
     def from_file(cls, fpath: Path) -> "Rule":
-        """Bir .md dosyasından Rule oluştur."""
-        text = fpath.read_text(encoding="utf-8")
-        rule_id = fpath.stem
+        """Bir dosyadan Rule oluştur — format-agnostik."""
+        from anchor.parser import RuleParser
         
-        fm = {}
-        content = text
-        
-        if text.startswith("---"):
-            parts = text.split("---", 2)
-            if len(parts) >= 3:
-                fm_text = parts[1].strip()
-                content = parts[2]
-                
-                for line in fm_text.split("\n"):
-                    if ":" in line:
-                        key, _, val = line.partition(":")
-                        key = key.strip()
-                        val = val.strip()
-                        
-                        if val.startswith("[") and val.endswith("]"):
-                            val = [v.strip().strip("'\"") for v in val[1:-1].split(",")]
-                        elif val.isdigit():
-                            val = int(val)
-                        elif val.replace(".", "").isdigit():
-                            val = float(val)
-                        
-                        fm[key] = val
+        parser = RuleParser()
+        parsed = parser.parse_file(fpath)
         
         return cls(
-            id=rule_id,
-            topic=fm.get("topic", rule_id),
-            content=content,
+            id=parsed.id,
+            topic=parsed.topic,
+            content=parsed.content,
             file_path=str(fpath),
-            aliases=fm.get("aliases", []),
-            tags=fm.get("tags", []),
-            priority=fm.get("priority", 5),
-            strictness=fm.get("strictness", 0.8),
+            aliases=parsed.aliases,
+            tags=parsed.tags,
+            priority=parsed.priority,
+            strictness=parsed.strictness,
         )
 
 
