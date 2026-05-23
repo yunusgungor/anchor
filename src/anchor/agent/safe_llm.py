@@ -33,7 +33,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from anchor.engine_v2 import AnchorEngineV2
+from anchor.engine import AnchorEngine
 from anchor.agent.llm_client import LLMClient
 
 
@@ -67,6 +67,7 @@ class SafeLLMAgent:
         llm_model: Optional[str] = None,
         index_path: Optional[str] = None,
         system_prompt: Optional[str] = None,
+        llm_client: Optional[LLMClient] = None,
     ):
         """
         Agent oluştur.
@@ -78,19 +79,24 @@ class SafeLLMAgent:
             llm_model: Model ismi (None ise default)
             index_path: Anchor binary index yolu
             system_prompt: LLM'e verilecek sistem prompt'u
+            llm_client: Özel LLM client (varsa provider/api_key kullanılmaz)
         """
         # Anchor engine
-        self.engine = AnchorEngineV2(rules_path, index_path)
+        self.engine = AnchorEngine(rules_path, index_path)
         self.engine.build()
         
         # LLM client
-        kwargs = {}
-        if llm_api_key:
-            kwargs["api_key"] = llm_api_key
-        if llm_model:
-            kwargs["model"] = llm_model
+        if llm_client:
+            self.llm = llm_client
+        else:
+            kwargs = {}
+            if llm_api_key:
+                kwargs["api_key"] = llm_api_key
+            if llm_model:
+                kwargs["model"] = llm_model
+            
+            self.llm = LLMClient(provider=llm_provider, **kwargs)
         
-        self.llm = LLMClient(provider=llm_provider, **kwargs)
         self.system_prompt = system_prompt
         
         # İstatistik

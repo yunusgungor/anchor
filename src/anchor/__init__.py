@@ -71,10 +71,30 @@ class Conflict:
     rule_id: str
     topic: str
     severity: Severity
-    llm_claim: str          # LLM'in söylediği
-    kb_fact: str            # KB'deki doğru bilgi
+    llm_claim: str          # LLM'in söylediği (eski)
+    kb_fact: str            # KB'deki doğru bilgi (eski)
     patch_position: int = 0  # Düzeltmenin yapılacağı pozisyon
     confidence: float = 0.5  # Çelişki tespit güven skoru (0-1)
+    # Yeni attribute'lar (detect.py uyumu)
+    claim: str = ""         # Alias: llm_claim
+    fact: str = ""          # Alias: kb_fact
+    distance: float = 0.0
+    position: Optional[tuple] = None
+
+    def __post_init__(self):
+        """Eski/yeni attribute sync."""
+        if self.llm_claim and not self.claim:
+            self.claim = self.llm_claim
+        if self.kb_fact and not self.fact:
+            self.fact = self.kb_fact
+        if self.claim and not self.llm_claim:
+            self.llm_claim = self.claim
+        if self.fact and not self.kb_fact:
+            self.kb_fact = self.fact
+        if self.patch_position and not self.position:
+            self.position = (self.patch_position, self.patch_position + len(self.claim or self.llm_claim))
+        elif self.position and not self.patch_position:
+            self.patch_position = self.position[0] if self.position else 0
 
 
 @dataclass

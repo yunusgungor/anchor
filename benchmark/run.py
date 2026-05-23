@@ -22,7 +22,7 @@ from typing import Any
 # Anchor'ı ekle
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from anchor.engine_v2 import AnchorEngineV2
+from anchor.engine import AnchorEngine
 
 
 class BenchmarkRunner:
@@ -56,7 +56,7 @@ class BenchmarkRunner:
         for _ in range(5):
             gc.collect()
             t0 = time.perf_counter()
-            engine = AnchorEngineV2(self.rules_path, self.index_path)
+            engine = AnchorEngine(self.rules_path, self.index_path)
             engine.build()
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000)
@@ -73,7 +73,7 @@ class BenchmarkRunner:
         """Query latency ölç (p50, p95, p99)."""
         print("\n🔍 Query Latency Benchmark...")
         
-        engine = AnchorEngineV2(self.rules_path, self.index_path)
+        engine = AnchorEngine(self.rules_path, self.index_path)
         engine.build()
         
         # Test sorguları
@@ -111,7 +111,7 @@ class BenchmarkRunner:
         """Conflict detection doğruluğunu ölç."""
         print("\n🎯 Conflict Detection Accuracy...")
         
-        engine = AnchorEngineV2(self.rules_path, self.index_path)
+        engine = AnchorEngine(self.rules_path, self.index_path)
         engine.build()
         
         # Bilinen çelişkiler (ground truth)
@@ -165,7 +165,7 @@ class BenchmarkRunner:
         """Patch latency ölç."""
         print("\n🩹 Patch Latency Benchmark...")
         
-        engine = AnchorEngineV2(self.rules_path, self.index_path)
+        engine = AnchorEngine(self.rules_path, self.index_path)
         engine.build()
         
         # CRITICAL conflict üreten query
@@ -194,7 +194,7 @@ class BenchmarkRunner:
         
         tracemalloc.start()
         
-        engine = AnchorEngineV2(self.rules_path, self.index_path)
+        engine = AnchorEngine(self.rules_path, self.index_path)
         engine.build()
         
         current, peak = tracemalloc.get_traced_memory()
@@ -212,7 +212,7 @@ class BenchmarkRunner:
         """Throughput ölç (queries/second)."""
         print("\n⚡ Throughput Benchmark...")
         
-        engine = AnchorEngineV2(self.rules_path, self.index_path)
+        engine = AnchorEngine(self.rules_path, self.index_path)
         engine.build()
         
         queries = [

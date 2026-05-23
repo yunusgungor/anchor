@@ -1,103 +1,115 @@
-# Anchor: Deterministic Rectification of LLM Outputs
+# ⚓ Anchor Engine v3
 
-**Bağımsız Bilimsel Araştırma Projesi**
+> **Deterministic LLM Output Rectification**
+
+LLM'lerin olasılıksal çıktılarını, kullanıcının kural dosyalarındaki deterministik bilgiyle senkronize eden **model-agnostik** rectification engine.
+
+[![Tests](https://img.shields.io/badge/tests-75%2F75%20passing-brightgreen)]()
+[![Latency](https://img.shields.io/badge/latency-<30ms-blue)]()
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)]()
 
 ---
 
-## Problem
+## 🎯 Ne Yapar?
 
-LLM'ler olasılıksal sistemlerdir: aynı girdiyle her seferinde farklı çıktı üretebilirler.
+```
+Kullanıcı Sorusu → LLM → Ham Cevap → Anchor → Düzeltilmiş Cevap
+                                              ↑
+                                       Bilgi Tabanı (rules/)
+```
 
-$$y \sim p_\theta(y | x) \quad \text{— her adımda bir olasılık dağılımından örnekleme}$$
-
-Kullanıcının bilgi tabanı (rules dosyaları) ise **deterministik ve kesin** bilgiler içerir. Aradaki ontolojik boşluğu kapatacak, LLM'den bağımsız bir matematiksel/fonksiyonel katman gereklidir.
-
-Bu proje, herhangi bir LLM'in çıktısını, kullanıcının kendi bilgi tabanına göre **düzeltmek, doğrulamak ve tutarlı hale getirmek** için tasarlanmıştır.
-
-## Araştırma Sorusu
-
-Bir LLM'in olasılıksal çıktı uzayı $\mathcal{Y}_{LLM}$ ile kullanıcının deterministik bilgi uzayı $\mathcal{K}$ arasında, hiçbir LLM'e dokunmadan çalışan bir **Rectification Fonksiyonu** $\Phi: \mathcal{Y}_{LLM} \times \mathcal{K} \to \mathcal{Y}_{corrected}$ tasarlanabilir mi?
-
-**Kısıt:** $\Phi$ asla ikinci bir LLM çağırmaz. Tüm işlemler string manipülasyonu, regex, hash/indeks ve embedding projeksiyonu ile yapılır.
-
-## Temel Tanımlar
-
-| Sembol | Anlam |
+| LLM Der ki | Anchor Düzeltir |
 |---|---|
-| $\mathcal{K} = \{k_1, ..., k_n\}$ | Kullanıcının rules dosyaları (her $k_i$ bir .md dosyası) |
-| $\mathcal{T} = \{t_1, ..., t_m\}$ | Konu uzayı (topic space) |
-| $f: \mathcal{K} \to \mathcal{T}$ | Her rule'un hangi konuda olduğunu belirten fonksiyon |
-| $y_{raw} \in \Sigma^*$ | LLM'in ürettiği ham string |
-| $\Phi(y_{raw}, \mathcal{K}) \to y'$ | Araştırmanın hedefi olan rectification fonksiyonu |
-| $d: \Sigma^* \times \Sigma^* \to \mathbb{R}^+$ | İki string arasındaki fark metriği (edit distance) |
-| $\delta: \Sigma^* \to \mathcal{P}(\mathcal{T})$ | LLM çıktısından konu çıkaran fonksiyon (topic extraction) |
+| "NPX1, TSMC 7nm'de üretilir" | "SKY130 (130nm), OpenLane ile" |
+| "StateGuard, AI framework" | "LLM Output Rectification Framework" |
 
-## Araştırma Metrikleri
+**Deterministik.** Aynı input → her zaman aynı output.
 
-$$ \text{Accuracy} = \frac{\text{doğru düzeltme sayısı}}{\text{toplam düzeltme sayısı}} $$
+---
 
-$$ \text{Coverage} = \frac{\text{KB'de olup LLM'in doğru ürettiği konu}}{\text{toplam konu}} $$
+## 🚀 Quick Start
 
-$$ \text{False Positive Rate} = \frac{\text{yanlış alarm}}{\text{toplam düzeltme}} $$
+```bash
+# Kurulum
+git clone https://github.com/yunusgungor/anchor.git
+cd anchor
+pip install -e ".[all]"
 
-$$ \text{Latency}_{p50}, \text{Latency}_{p99} $$
+# Test
+pytest tests/ -q
 
-$$ \text{Edit Distance}_{avg} = \frac{1}{N} \sum_i \text{ED}(y_{raw}^{(i)}, y'^{(i)}) $$
+# Chat UI başlat
+PYTHONPATH=src python -m uvicorn anchor.ui.app:app --host 0.0.0.0 --port 8080
+```
 
-## Metodoloji
+---
 
-### Faz I — Formal Model (✓)
-Matematiksel tanımlar, performans hedefleri, başarı metrikleri.
-
-### Faz II — Prototip (▶)
-Python ile core engine: topic extraction, index yapısı, conflict detection, rectification.
-
-### Faz III — Deneysel Değerlendirme
-3 farklı LLM'de test (ChatGPT, Claude, Llama), 3 farklı domain'de test, metrik toplama.
-
-### Faz IV — Yayın
-Matematiksel ispatlar, performans grafikleri, white paper.
-
-## Proje Yapısı
+## 📁 Proje Yapısı
 
 ```
 anchor/
-├── README.md                 # Araştırma manifestosu
-├── research/
-│   ├── mathematical-framework.md
-│   ├── experiments.md
-│   └── results/
-├── anchor/                   # Core engine (Python paketi)
-│   ├── __init__.py
-│   ├── models.py             # Veri modelleri
-│   ├── index.py              # Rule index yapısı
-│   ├── topic_extractor.py    # Topic extraction
-│   ├── conflict_detector.py  # Conflict detection
-│   └── rectifier.py          # Ana rectification pipeline
-├── tests/
-│   └── test_core.py
-├── examples/
-│   └── rules/                # Örnek rule dosyaları
-└── requirements.txt
+├── src/anchor/
+│   ├── __init__.py          # Core: Rule, Fact, Conflict, Correction
+│   ├── engine.py            # Ana orkestrasyon motoru
+│   ├── detect.py            # Claim extraction + fact matching
+│   ├── rectify.py           # Patch engine (4 strateji)
+│   ├── compliance/            # C5: Constraint Engine (format/style/strategy)
+│   ├── parser/               # Format-agnostik rule parser (.md, .txt, .json, .csv)
+│   ├── organize/             # Shard, Bloom filter, semantic index
+│   ├── store/                # Binary index, lazy loading
+│   ├── agent/                # SafeLLMAgent + LLMClient + RuleManager
+│   └── ui/                   # FastAPI + Chat UI
+├── rules/                    # Bilgi tabanı (örnek)
+├── tests/                    # 75 test
+├── Dockerfile
+├── docker-compose.yml
+└── pyproject.toml
 ```
 
-## Kullanım (Taslak)
+---
 
-```python
-from anchor import KnowledgeEngine
+## 🧠 Mimarisi
 
-# Rules dosyalarını yükle
-engine = KnowledgeEngine("examples/rules")
-
-# Herhangi bir LLM'den gelen çıktıyı düzelt
-llm_output = "RISC-V NPU, genel amaçlı bir AI hızlandırıcıdır..."
-corrected = engine.rectify(
-    user_query="NPX1 nedir?",
-    llm_output=llm_output
-)
-# → "RISC-V NPU (NPX1), edge AI için özel bir tasarımdır..."
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Anchor Engine v3                                             │
+├─────────────────────────────────────────────────────────────┤
+│  A1: Topic Extraction      → Trie + Regex                   │
+│  A2: Knowledge Retrieval   → Bloom + Semantic + Binary Index │
+│  A3: Conflict Detection    → Claim Extractor + Fact Matcher   │
+│  A4: Rectification         → Patch Engine (override/patch)   │
+├─────────────────────────────────────────────────────────────┤
+│  C5: Constraint Engine     → Format/Style/Strategy checker    │
+│      • Auto-fix: truncate, insert emoji, append CTA          │
+│      • Flag: style violations (humor, tone)                  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## License
+---
 
-Bu bir araştırma projesidir. Tüm haklar saklıdır.
+## 📊 Performans
+
+| Metrik | Değer |
+|---|---|
+| Cold start | ~55ms |
+| Query latency (p50) | ~9ms |
+| Throughput | 234 QPS |
+| Memory (1000 rule) | 3.6MB |
+| Test coverage | 75/75 ✅ |
+
+---
+
+## 🔗 Karşılaştırma
+
+| | RAG | Guardrails | Anchor |
+|---|---|---|---|
+| Halüsinasyon | Devam eder | Reddeder | **Düzeltir** |
+| LLM Çağrısı | 1 | 2 | **1** |
+| Maliyet | Normal | 2x | **0** |
+| Determinizm | ❌ | ❌ | **✅** |
+
+---
+
+## 📄 Lisans
+
+MIT © Yunus Güngör
