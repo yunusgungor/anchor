@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anchor Chat</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>⚓ Anchor</h1>
+            <p>Deterministik LLM Çıktı Düzeltme Motoru</p>
+            <div class="stats" id="stats">
+                <span>Latency: <b id="latency">-</b></span>
+                <span>Modified: <b id="modified">-</b></span>
+                <span>Confidence: <b id="confidence">-</b></span>
+            </div>
+        </header>
+
+        <div class="chat-container" id="chat-container">
+            <!-- Messages will appear here -->
+        </div>
+
+        <div class="input-area">
+            <input type="text" id="message-input" placeholder="Sorunuzu yazın... (örn: NPX1 nedir?)" autocomplete="off">
+            <button id="send-btn">Gönder</button>
+        </div>
+    </div>
+
+    <script src="/static/chat.js"></script>
+</body>
+</html>
