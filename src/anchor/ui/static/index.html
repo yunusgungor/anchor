@@ -3,29 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Anchor Chat</title>
+    <title>Anchor</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="container">
-        <header class="header">
-            <h1>⚓ Anchor</h1>
-            <p>Deterministik LLM Çıktı Düzeltme Motoru</p>
-            <div class="stats" id="stats">
-                <span>Latency: <b id="latency">-</b></span>
-                <span>Modified: <b id="modified">-</b></span>
-                <span>Confidence: <b id="confidence">-</b></span>
+    <div class="header">
+        <h1><span>⚓</span> Anchor</h1>
+        <div class="stats">
+            <div>⏱ <span id="latency">—</span></div>
+            <div>🔧 <span id="modified">—</span></div>
+            <div>🎯 <span id="confidence">—</span></div>
+        </div>
+    </div>
+
+    <div id="chat-container" class="chat-container">
+        <div class="message bot">
+            <div class="final-text">
+                Merhaba! Sorularınızı yanıtlayabilirim. Her cevap kurallarınıza göre otomatik düzeltilir.
             </div>
-        </header>
-
-        <div class="chat-container" id="chat-container">
-            <!-- Messages will appear here -->
+            <div class="meta-bar">
+                <span class="latency-muted">⚓ Anchor Engine v3</span>
+            </div>
         </div>
+    </div>
 
-        <div class="input-area">
-            <input type="text" id="message-input" placeholder="Sorunuzu yazın... (örn: NPX1 nedir?)" autocomplete="off">
-            <button id="send-btn">Gönder</button>
-        </div>
+    <div class="input-area">
+        <input type="text" id="message-input" placeholder="Sorunuzu yazın..." autocomplete="off">
+        <button id="send-btn">Gönder</button>
     </div>
 
     <script src="/static/chat.js"></script>

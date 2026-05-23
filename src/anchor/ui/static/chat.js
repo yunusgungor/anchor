@@ -1,5 +1,9 @@
 /**
- * Anchor Chat UI — Frontend JavaScript
+ * Anchor Chat UI v2 — Clean UX: Kullanıcıya sadece nihai sonuç.
+ * 
+ * Prensip: LLM↔Anchor iletişimi kullanıcıya görünmez.
+ * Sadece düzeltilmiş sonuç gösterilir.
+ * Detaylar sadece istenirse (click) açılır — developer/audit için.
  */
 
 const chatContainer = document.getElementById('chat-container');
@@ -9,10 +13,8 @@ const latencyEl = document.getElementById('latency');
 const modifiedEl = document.getElementById('modified');
 const confidenceEl = document.getElementById('confidence');
 
-// State
 let isProcessing = false;
 
-// Event listeners
 sendBtn.addEventListener('click', sendMessage);
 messageInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendMessage();
@@ -22,16 +24,13 @@ function sendMessage() {
     const text = messageInput.value.trim();
     if (!text || isProcessing) return;
 
-    // Add user message
     addMessage(text, 'user');
     messageInput.value = '';
 
-    // Show loading
     isProcessing = true;
     sendBtn.disabled = true;
     const loadingId = addLoading();
 
-    // Send to backend
     fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -66,7 +65,7 @@ function addLoading() {
     const msg = document.createElement('div');
     msg.className = 'message bot';
     msg.id = 'loading-' + Date.now();
-    msg.innerHTML = '<span class="spinner"></span> Düzeltme motoru çalışıyor...';
+    msg.innerHTML = '<span class="spinner"></span> Düzeltiliyor...';
     chatContainer.appendChild(msg);
     chatContainer.scrollTop = chatContainer.scrollHeight;
     return msg.id;
@@ -81,61 +80,92 @@ function displayResult(data) {
     const msg = document.createElement('div');
     msg.className = 'message bot';
 
-    // Düzeltilmiş cevap
+    // === NİHAYİ CEVAP (tek şey kullanıcı görür) ===
     const corrected = document.createElement('div');
+    corrected.className = 'final-text';
     corrected.textContent = data.corrected || data.raw;
     msg.appendChild(corrected);
 
-    // Meta bilgi
+    // === ALT BİLGİ BAR: Minimal, unobtrusive ===
     const meta = document.createElement('div');
-    meta.className = 'meta';
+    meta.className = 'meta-bar';
 
-    const modText = data.modified ? '✅ Düzeltildi' : '❌ Değişmedi';
-    meta.innerHTML = `
-        <span>${modText}</span>
-        <span>⏱ ${data.latency_ms.toFixed(1)}ms</span>
-        <span>🎯 ${(data.confidence * 100).toFixed(0)}%</span>
-    `;
+    // Düzeltme varsa küçük 🔧 indikator, yoksa hiçbir şey
+    if (data.modified && data.corrections && data.corrections.length > 0) {
+        const fixCount = data.corrections.length;
+        const fixBtn = document.createElement('button');
+        fixBtn.className = 'fix-toggle';
+        fixBtn.textContent = `🔧 ${fixCount} düzeltme`;
+        fixBtn.onclick = () => toggleDetails(msg, data);
+        meta.appendChild(fixBtn);
+    }
+
+    // Sağ: latency (muted)
+    const latency = document.createElement('span');
+    latency.className = 'latency-muted';
+    latency.textContent = `⏱ ${data.latency_ms.toFixed(1)}ms`;
+    meta.appendChild(latency);
+
     msg.appendChild(meta);
 
-    // Düzeltme badge'leri
+    // === DETAY PANELİ: Başta gizli, istenirse açılır ===
+    const detailsPanel = document.createElement('div');
+    detailsPanel.className = 'details-panel hidden';
+    detailsPanel.dataset.role = 'details';
+    
+    // Severity badge'leri (details içinde)
     if (data.corrections && data.corrections.length > 0) {
-        const badgeContainer = document.createElement('div');
-        badgeContainer.style.marginTop = '8px';
+        const badgeRow = document.createElement('div');
+        badgeRow.className = 'badge-row';
         data.corrections.forEach(c => {
             const badge = document.createElement('span');
             badge.className = `correction-badge ${c.severity.toLowerCase()}`;
             badge.textContent = c.severity;
-            badgeContainer.appendChild(badge);
+            badgeRow.appendChild(badge);
         });
-        msg.appendChild(badgeContainer);
+        detailsPanel.appendChild(badgeRow);
     }
 
-    // Rapor paneli
+    // Rapor (varsa)
     if (data.report) {
-        const report = document.createElement('details');
-        report.className = 'report-panel';
-        report.innerHTML = `
-            <summary>📋 Rapor</summary>
-            <div class="details">${escapeHtml(data.report)}</div>
-        `;
-        msg.appendChild(report);
+        const reportBox = document.createElement('pre');
+        reportBox.className = 'report-text';
+        reportBox.textContent = data.report;
+        detailsPanel.appendChild(reportBox);
     }
 
-    // Ham cevap (collapse)
-    if (data.modified && data.raw !== data.corrected) {
-        const rawPanel = document.createElement('details');
-        rawPanel.className = 'report-panel';
-        rawPanel.style.borderLeftColor = '#666';
-        rawPanel.innerHTML = `
-            <summary>🤖 LLM Ham Cevabı (değiştirildi)</summary>
-            <div class="details">${escapeHtml(data.raw)}</div>
-        `;
-        msg.appendChild(rawPanel);
+    // Ham cevap (varsa, sadece details içinde)
+    if (data.modified && data.raw && data.raw !== data.corrected) {
+        const rawBox = document.createElement('div');
+        rawBox.className = 'raw-box';
+        rawBox.innerHTML = `<strong>🤖 LLM Ham Cevabı:</strong>`;
+        const rawText = document.createElement('pre');
+        rawText.className = 'raw-text';
+        rawText.textContent = data.raw;
+        rawBox.appendChild(rawText);
+        detailsPanel.appendChild(rawBox);
     }
 
+    msg.appendChild(detailsPanel);
     chatContainer.appendChild(msg);
     chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+function toggleDetails(msgEl, data) {
+    const panel = msgEl.querySelector('[data-role="details"]');
+    if (!panel) return;
+    
+    const isHidden = panel.classList.contains('hidden');
+    if (isHidden) {
+        panel.classList.remove('hidden');
+        // Buton text güncelle
+        const btn = msgEl.querySelector('.fix-toggle');
+        if (btn) btn.textContent = '🔧 Detayları gizle';
+    } else {
+        panel.classList.add('hidden');
+        const btn = msgEl.querySelector('.fix-toggle');
+        if (btn) btn.textContent = `🔧 ${data.corrections.length} düzeltme`;
+    }
 }
 
 function updateStats(data) {
