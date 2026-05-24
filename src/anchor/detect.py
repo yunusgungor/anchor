@@ -547,7 +547,8 @@ class ConflictDetector:
         self.workflow_validator = None  # lazy import WorkflowIntegrator
         self.last_step_violations: list = []  # v4.0: last detection's step violations
 
-    def detect(self, llm_output: str, rule, topics: list) -> list[Conflict]:
+    def detect(self, llm_output: str, rule, topics: list,
+               additional_terms: list[str] | None = None) -> list[Conflict]:
         """
         LLM output'unda rule'la ilgili çelişkileri tespit et.
         
@@ -568,6 +569,8 @@ class ConflictDetector:
             llm_output: LLM'in ürettiği ham metin
             rule: KB'deki Rule objesi
             topics: Bulunan topic'ler
+            additional_terms: v4.3 — distinctive keyword matching'den
+                             gelen ek terimler (örn. ["singleton"])
 
         Returns:
             Çelişki listesi
@@ -577,8 +580,13 @@ class ConflictDetector:
 
         conflicts = []
 
-        # 1. Claim extraction
-        claims = self.extractor.extract(llm_output, rule.topic, rule.aliases)
+        # 1. Claim extraction (additional_terms ile genişlet)
+        combined_aliases = list(rule.aliases)
+        if additional_terms:
+            for term in additional_terms:
+                if term not in combined_aliases:
+                    combined_aliases.append(term)
+        claims = self.extractor.extract(llm_output, rule.topic, combined_aliases)
 
         if not claims:
             # v4.0: Still run workflow validation even without claims

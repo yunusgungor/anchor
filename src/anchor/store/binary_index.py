@@ -30,7 +30,7 @@ from anchor.organize.semantic_index import SemanticIndex
 
 
 # Versiyon: format değişikliklerinde artır
-FORMAT_VERSION = 3  # v3: enriched_facts
+FORMAT_VERSION = 4  # v4: distinctive_keyword_index (TF-IDF keyword matching)
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,8 @@ class SecureBinaryIndexManager:
              shard_map: dict[str, str],
              bloom: BloomIndex,
              semantic: SemanticIndex,
-             rule_metadata: list[dict]):
+             rule_metadata: list[dict],
+             distinctive_keyword_index: dict[str, list[str]] | None = None):
         """
         Mevcut index'leri disk'e serialize et (JSON + NPZ).
         
@@ -197,6 +198,7 @@ class SecureBinaryIndexManager:
             "shard_map": shard_map,
             "bloom_items": list(bloom._set),
             "rule_metadata": rule_metadata,
+            "distinctive_keyword_index": distinctive_keyword_index or {},
         }
         
         # Hash ekle (integrity check için)
@@ -289,6 +291,7 @@ class SecureBinaryIndexManager:
                 "bloom": bloom,
                 "semantic": semantic,
                 "rule_metadata": rule_metadata,
+                "distinctive_keyword_index": data.get("distinctive_keyword_index", {}),
             }
         
         except Exception as e:

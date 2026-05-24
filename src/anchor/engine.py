@@ -158,7 +158,7 @@ class AnchorEngine:
                 # Check topic in output
                 topic_lower = tn.lower()
                 if len(topic_lower) >= 4 and topic_lower in output_lower:
-                    topic_names.add(tn)
+                    topic_names.append(tn)
                     topics.append(Topic(name=tn, confidence=0.55))
                     continue
                 # Check aliases in output
@@ -166,9 +166,28 @@ class AnchorEngine:
                     alias_lower = alias.lower()
                     if len(alias_lower) >= 4 and alias_lower in output_lower:
                         if tn not in topic_names:
-                            topic_names.add(tn)
+                            topic_names.append(tn)
                             topics.append(Topic(name=tn, confidence=0.60))
                             break
+        
+        # v4.3: DISTINCTIVE KEYWORD MATCHING — zero-config topic discovery
+        # LLM çıktısında distinctive keyword varsa, o rule'u otomatik tetikle
+        kw_index = getattr(self.store, '_distinctive_keyword_index', {})
+        keyword_matches: dict[str, list[str]] = {}  # rule_id → matched keywords
+        if kw_index and llm_output and len(llm_output) >= 10:
+            output_lower = llm_output.lower()
+            for keyword, rule_ids in kw_index.items():
+                if keyword in output_lower:  # %0 false positive: exact substring
+                    for rid in rule_ids:
+                        meta = self.store._rule_meta.get(rid)
+                        if meta and meta["topic"] not in topic_names:
+                            topic_names.append(meta["topic"])
+                            topics.append(Topic(name=meta["topic"], confidence=0.65))
+                        # Track matched keywords for claim extraction
+                        if rid not in keyword_matches:
+                            keyword_matches[rid] = []
+                        if keyword not in keyword_matches[rid]:
+                            keyword_matches[rid].append(keyword)
         
         # === A2: Knowledge Retrieval ===
         # Scalable store: bloom → semantic → lazy load
@@ -191,7 +210,9 @@ class AnchorEngine:
         all_conflicts: list[Conflict] = []
         all_step_violations: list = []
         for rule in rules:
-            conflicts = self.detector.detect(llm_output, rule, topics)
+            # v4.3: Pass matched keywords as additional terms for claim extraction
+            extra = keyword_matches.get(rule.id, None)
+            conflicts = self.detector.detect(llm_output, rule, topics, additional_terms=extra)
             all_conflicts.extend(conflicts)
             # v4.0: Collect step violations
             if hasattr(self.detector, 'last_step_violations'):

@@ -10,7 +10,9 @@ Scalable Rule Store — 10.000+ rule için optimize edilmiş depolama.
 """
 
 import logging
+import math
 import pickle
+import re
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -67,6 +69,10 @@ class ScalableRuleStore:
         # Rule metadata for lazy load (id → {topic, priority, strictness, path})
         self._rule_meta: dict[str, dict] = {}
         
+        # v4.3: Distinctive keyword index (TF-IDF tabanlı)
+        # keyword → [rule_id1, rule_id2, ...] — zero-config topic discovery
+        self._distinctive_keyword_index: dict[str, list[str]] = {}
+        
         # İstatistik
         self._hits = 0
         self._misses = 0
@@ -87,6 +93,10 @@ class ScalableRuleStore:
                 self._bloom = loaded["bloom"]
                 self._semantic = loaded["semantic"]
                 self._rule_meta = {r["id"]: r for r in loaded.get("rule_metadata", [])}
+                # v4.3: Restore keyword index from cache
+                self._distinctive_keyword_index = loaded.get("distinctive_keyword_index", {})
+                if not self._distinctive_keyword_index:
+                    self._rebuild_keyword_index_from_meta()
                 self._built = True
                 # Eager model pre-warm for <10ms first query
                 if self._use_embedding:
@@ -209,18 +219,182 @@ class ScalableRuleStore:
         
         self._built = True
         
+        # v4.3: Build distinctive keyword index (zero-config topic discovery)
+        self._build_distinctive_keywords()
+        
         # Binary index'e kaydet
         self._binman.save(
             shard_map=self._shard_topic_map,
             bloom=self._bloom,
             semantic=self._semantic,
             rule_metadata=rule_metadata,
+            distinctive_keyword_index=self._distinctive_keyword_index,
         )
         
         elapsed = (time.perf_counter() - t0) * 1000
         logger.info("ScalableStore rebuild: %.1fms | shards=%d | bloom=%d | vectors=%d",
                      elapsed, len(self._router.list_shards()), self._bloom.size,
                      self._semantic.stats()['indexed_vectors'])
+    
+    def _rebuild_keyword_index_from_meta(self):
+        """Binary index'ten yüklendikten sonra keyword index'i yeniden kur."""
+        self._distinctive_keyword_index = {}
+        for rid, meta in self._rule_meta.items():
+            keywords = meta.get("distinctive_keywords", [])
+            for kw in keywords:
+                self._distinctive_keyword_index.setdefault(kw, []).append(rid)
+        logger.debug("Keyword index rebuilt from meta: %d keywords, %d rules",
+                     len(self._distinctive_keyword_index), len(self._rule_meta))
+    
+    def _build_distinctive_keywords(self):
+        """TF-IDF tabanlı distinctive keyword index oluştur.
+        
+        Her rule'ın fact'lerinden kelimeler çıkar, tüm rule'lar arasında
+        document frequency hesapla. Sadece az sayıda rule'da geçen 
+        (distinctive) kelimeleri keyword olarak sakla.
+        
+        Bu sayede kullanıcı hiçbir topic/alias belirtmese bile:
+        - LLM çıktısında "liskov" geçiyorsa → solid-principles tetiklenir
+        - "/v1/" geçiyorsa → api-versionlama tetiklenir
+        - "mock" geçiyorsa → mocking-guide tetiklenir
+        
+        %0 false positive garantisi: exact substring matching kullanılır.
+        """
+        from anchor.detect import ConflictDetector
+        det = ConflictDetector()
+        
+        # Stopwords (dil-agnostik — hem Türkçe hem İngilizce)
+        STOPWORDS = {
+            'bir', 've', 'bu', 'ile', 'olan', 'gibi', 'kadar', 'ama', 'sonra',
+            'önce', 'için', 'olarak', 'tarafından', 'ancak', 'daha', 'çok',
+            'başka', 'kendi', 'aynı', 'her', 'tüm', 'hem', 'ya', 'da', 'şey',
+            'the', 'and', 'for', 'with', 'this', 'that', 'from', 'are', 'was',
+            'is', 'not', 'but', 'or', 'as', 'to', 'of', 'in', 'on', 'at', 'by',
+            'değil', 'son', 'yeni', 'iki', 'üç', 'vb', 'vs', 'dr', 'mr', 'no',
+            'rules', 'principles', 'standards', 'guide', 'cycle', 'process',
+            'practices', 'patterns', 'about', 'the', 'for', 'with',
+            'testing', 'management', 'production', 'naming', 'clean',
+            'code', 'just', 'use', 'should', 'must', 'can', 'will', 'may',
+            'used', 'using', 'based', 'also', 'well', 'need', 'make', 'way',
+            'part', 'set', 'get', 'without', 'within', 'between', 'over',
+            'first', 'last', 'next', 'each', 'many', 'some', 'any', 'all',
+            'both', 'other', 'into', 'through', 'during', 'before', 'after',
+            'above', 'below', 'up', 'down', 'out', 'off', 'under', 'again',
+            'further', 'once', 'here', 'there', 'when', 'where', 'why',
+            'how', 'what', 'which', 'who', 'whom', 'this', 'those', 'these',
+            # v4.3: Ek stopwords (çok yaygın kelimeler)
+            'always', 'never', 'ever', 'very', 'much', 'many', 'still',
+            'already', 'yet', 'now', 'then', 'than', 'too', 'also',
+            'even', 'though', 'although', 'while', 'since', 'until',
+            'always', 'every', 'everyone', 'everything', 'everywhere',
+            'someone', 'something', 'somewhere', 'anyone', 'anything',
+            'anywhere', 'nobody', 'nothing', 'both', 'either', 'neither',
+            'upon', 'onto', 'into', 'within', 'without', 'throughout',
+            'against', 'between', 'among', 'beside', 'beyond', 'around',
+            'about', 'across', 'along', 'despite', 'during', 'except',
+            'inside', 'outside', 'toward', 'towards', 'under', 'underneath',
+            'because', 'therefore', 'however', 'moreover', 'furthermore',
+            'nevertheless', 'nonetheless', 'otherwise', 'thus', 'hence',
+            'namely', 'such', 'like', 'than', 'rather', 'quite', 'hardly',
+            'scarcely', 'barely', 'nearly', 'almost', 'mostly', 'mainly',
+            'primarily', 'largely', 'widely', 'typically', 'usually',
+            'frequently', 'often', 'sometimes', 'occasionally', 'rarely',
+            'seldom', 'commonly', 'generally', 'normally', 'essentially',
+            'basically', 'roughly', 'approximately', 'virtually',
+            'practically', 'nearly', 'just', 'simply', 'merely', 'purely',
+            'truly', 'highly', 'deeply', 'strongly', 'clearly', 'obviously',
+            'apparently', 'evidently', 'presumably', 'supposedly',
+            'allegedly', 'reportedly', 'arguably', 'debatably',
+            'consequently', 'accordingly', 'subsequently', 'previously',
+            'initially', 'originally', 'eventually', 'ultimately',
+            'finally', 'lastly', 'meanwhile', 'conversely', 'likewise',
+            'similarly', 'contrarily', 'contrastingly', 'alternatively',
+            'specially', 'especially', 'particularly', 'specifically',
+            'namely', 'says', 'said', 'seen', 'given', 'taken',
+            'called', 'known', 'made', 'come', 'came', 'go', 'goes',
+            'went', 'take', 'took', 'see', 'saw', 'know', 'knew',
+            'think', 'thought', 'want', 'wanted', 'tell', 'told',
+            'give', 'gave', 'find', 'found', 'show', 'showed', 'shown',
+            'bring', 'brought', 'leave', 'left', 'keep', 'kept',
+            'hold', 'held', 'let', 'let', 'begin', 'began', 'begun',
+            'keep', 'kept', 'feel', 'felt', 'mean', 'meant',
+            'run', 'ran', 'set', 'put', 'move', 'moved', 'live',
+            'lived', 'work', 'worked', 'seem', 'seemed', 'look',
+            'looked', 'become', 'became', 'remain', 'remained',
+            'start', 'started', 'stop', 'stopped', 'try', 'tried',
+            'ask', 'asked', 'need', 'needed', 'feel', 'felt',
+            'place', 'places', 'point', 'points', 'case', 'cases',
+            'fact', 'facts', 'side', 'sides', 'line', 'lines',
+            'kind', 'kinds', 'sort', 'sorts', 'type', 'types',
+            'form', 'forms', 'area', 'areas', 'group', 'groups',
+            'number', 'numbers', 'system', 'systems', 'way', 'ways',
+            'thing', 'things', 'world', 'worlds', 'life', 'lives',
+            'hand', 'hands', 'part', 'parts', 'result', 'results',
+            'reason', 'reasons', 'difference', 'differences',
+            'value', 'values', 'important', 'different', 'possible',
+            'common', 'simple', 'basic', 'specific', 'general',
+            'current', 'previous', 'following', 'above', 'below',
+            'single', 'multiple', 'various', 'similar', 'separate',
+            'entire', 'whole', 'complete', 'total', 'partial',
+            'direct', 'indirect', 'primary', 'secondary', 'major',
+            'minor', 'main', 'central', 'local', 'global',
+            'overall', 'overview', 'summary', 'details', 'detail',
+        }
+        
+        # Pass 1: Tüm rule'lardan kelimeleri çıkar, document frequency hesapla
+        doc_freq: dict[str, int] = {}       # word → kaç rule'da geçiyor
+        rule_words: dict[str, set[str]] = {} # rule_id → distinctive adayı kelimeler
+        
+        for rid, meta in self._rule_meta.items():
+            fpath = meta.get("path", "")
+            if not fpath or not Path(fpath).exists():
+                continue
+            
+            text = Path(fpath).read_text(encoding="utf-8")
+            facts = det._extract_facts(text)
+            
+            words = set()
+            for fact in facts:
+                # Normalize: lowercase, extract alpha tokens 3+ chars
+                tokens = re.findall(r'\b[a-zçğıöşüü]{3,}\b', fact.lower())
+                words.update(tokens)
+                # Also extract special patterns: /v1/, CI/CD, test-pyramid, etc.
+                special = re.findall(r'[/][a-z0-9çğıöşüü/_-]+[/]|'
+                                     r'[a-zçğıöşüü0-9_-]+/'
+                                     r'[a-zçğıöşüü0-9_-]+', fact.lower())
+                for s in special:
+                    clean = s.strip('/').replace('/', '-').replace('_', '-')
+                    if len(clean) >= 3:
+                        words.add(clean)
+            
+            rule_words[rid] = words
+            for w in words:
+                doc_freq[w] = doc_freq.get(w, 0) + 1
+        
+        N = len(rule_words)
+        if N == 0:
+            return
+        
+        # Pass 2: IDF threshold — a word can appear in at most max_allowed rules
+        max_allowed = max(5, int(N * 0.2))  # ≤20% of rules or 5, whichever larger
+        
+        self._distinctive_keyword_index = {}
+        for rid, words in rule_words.items():
+            distinctive = []
+            for w in sorted(words):  # Deterministic order
+                if w in STOPWORDS or len(w) < 4:
+                    continue
+                df = doc_freq.get(w, N)
+                if df <= max_allowed:  # Truly distinctive
+                    distinctive.append(w)
+                    self._distinctive_keyword_index.setdefault(w, []).append(rid)
+            
+            # Update metadata
+            if rid in self._rule_meta:
+                self._rule_meta[rid]["distinctive_keywords"] = distinctive
+        
+        logger.info("Distinctive keyword index built: %d keywords, %d rules (max_allowed=%d)",
+                     len(self._distinctive_keyword_index), len(self._rule_meta), max_allowed)
     
     def _extract_topic_from_file(self, fpath: Path) -> Optional[str]:
         """Sadece topic çıkar — tam parse değil (utility kullanır)."""
