@@ -20,6 +20,7 @@ Kullanım:
 """
 
 from anchor.judge.cache import JudgeCache, JudgeVerdict
+from anchor.judge.enricher import RuleEnricher
 from anchor.judge.llm_judge import JudgeConfig, LLMJudge
 from anchor.judge import embedding
 
@@ -29,4 +30,5 @@ __all__ = [
     "JudgeVerdict",
     "JudgeConfig",
     "LLMJudge",
+    "RuleEnricher",
 ]

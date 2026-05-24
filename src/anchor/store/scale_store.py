@@ -14,7 +14,7 @@ import pickle
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from anchor import Rule, Topic
 from anchor.organize.domain_shard import ShardRouter
@@ -23,6 +23,9 @@ from anchor.organize.semantic_index import SemanticIndex
 from anchor.store.rule_store import RuleStore
 from anchor.store.binary_index import BinaryIndexManager
 from anchor.parser.frontmatter import extract_topic, extract_metadata
+
+if TYPE_CHECKING:
+    from anchor.judge.enricher import RuleEnricher
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +43,14 @@ class ScalableRuleStore:
       5. Lazy Load → sadece gerekli rule'ların içeriğini parse et
     """
     
-    def __init__(self, rules_path: str, index_path: Optional[str] = None):
+    def __init__(self, rules_path: str, index_path: Optional[str] = None,
+                 enricher: Optional["RuleEnricher"] = None):
         self.path = Path(rules_path)
         self._router = ShardRouter(rules_path)
         self._bloom = BloomIndex(expected_items=10_000, false_positive_rate=0.01)
         self._semantic = SemanticIndex(max_features=2000)
         self._binman = BinaryIndexManager(rules_path, index_path)
+        self._enricher = enricher
         
         # Hot cache (LRU)
         self._hot_cache: OrderedDict[str, Rule] = OrderedDict()
@@ -119,6 +124,19 @@ class ScalableRuleStore:
                     "priority": priority,
                     "strictness": strictness,
                 }
+                
+                # Build-time enrichment: facts'in paraphrase'larını üret
+                if self._enricher is not None:
+                    try:
+                        text = fpath.read_text(encoding="utf-8")
+                        enriched = self._enricher.enrich_rule(text)
+                        if enriched:
+                            meta["enriched_facts"] = enriched
+                            logger.debug("Enriched %s: %d facts → %d",
+                                         rule_id, len(enriched) // 3, len(enriched))
+                    except Exception as e:
+                        logger.warning("Enrichment failed for %s: %s", rule_id, e)
+                
                 self._rule_meta[rule_id] = meta
                 rule_metadata.append(meta)
         
@@ -251,13 +269,19 @@ class ScalableRuleStore:
         return rule
     
     def _lazy_load(self, rule_id: str) -> Optional[Rule]:
-        """Diskten bir rule'u parse et."""
+        """Diskten bir rule'u parse et, enriched facts varsa ekle."""
         # rule_id → dosya yolunu bul
         for fpath in self.path.rglob(f"{rule_id}.md"):
             if fpath.is_file():
                 try:
                     from anchor import Rule
-                    return Rule.from_file(fpath)
+                    rule = Rule.from_file(fpath)
+                    # Enriched facts varsa rule objesine ekle
+                    meta = self._rule_meta.get(rule_id, {})
+                    enriched = meta.get("enriched_facts", [])
+                    if enriched:
+                        rule.enriched_facts = enriched
+                    return rule
                 except Exception:
                     pass
         return None

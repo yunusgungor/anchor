@@ -16,6 +16,7 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from anchor.judge.llm_judge import JudgeConfig
+    from anchor.judge.enricher import RuleEnricher
 
 from anchor import (
     Conflict, Correction, RectificationResult,
@@ -48,8 +49,9 @@ class AnchorEngine:
     
     def __init__(self, rules_path: str, index_path: Optional[str] = None,
                  use_embedding: bool = False,
-                 judge_config: Optional["JudgeConfig"] = None):
-        self.store = ScalableRuleStore(rules_path, index_path)
+                 judge_config: Optional["JudgeConfig"] = None,
+                 enricher: Optional["RuleEnricher"] = None):
+        self.store = ScalableRuleStore(rules_path, index_path, enricher=enricher)
         self.extractor = ClaimExtractor()
         self.detector = ConflictDetector(extractor=self.extractor,
                                           use_embedding=use_embedding,

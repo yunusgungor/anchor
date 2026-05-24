@@ -30,7 +30,7 @@ from anchor.organize.semantic_index import SemanticIndex
 
 
 # Versiyon: format değişikliklerinde artır
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3  # v3: enriched_facts
 
 logger = logging.getLogger(__name__)
 

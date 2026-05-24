@@ -38,6 +38,7 @@ class Rule:
     tags: list[str] = field(default_factory=list)
     priority: int = 5
     strictness: float = 0.8
+    enriched_facts: list[str] = field(default_factory=list)  # build-time paraphrase'lar
 
     def __hash__(self):
         return hash(self.id)

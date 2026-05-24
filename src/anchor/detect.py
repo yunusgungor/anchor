@@ -403,6 +403,11 @@ class ConflictDetector:
              a. Relevance filter: farklı konu → false positive önleme
              b. Dynamic threshold: ortak keyword varsa (paraphrase olabilir)
                 conflict eşiği yükseltilir
+             c. LLM-as-Judge: borderline case'lerde (opsiyonel)
+        
+        NOT: enriched_facts (build-time paraphrase'lar) otomatik kullanılır.
+        rule objesi anchor.parser'dan gelen standart Rule ise,
+        ScaleStore'daki enriched_facts'ler ConflictDetector'a enjekte edilmelidir.
 
         Args:
             llm_output: LLM'in ürettiği ham metin
@@ -426,6 +431,16 @@ class ConflictDetector:
         # 2. Rule'dan fact'leri ve bilinen yanlış claim'leri parse et
         facts = self._extract_facts(rule.content)
         known_wrong = self._extract_known_wrong_claims(rule.content)
+        
+        # 2b. Enriched facts varsa ekle (build-time paraphrase'lar)
+        enriched = getattr(rule, "enriched_facts", None) or []
+        if enriched:
+            # enriched_facts orijinalleri de içerir, duplicate'leri önle
+            original_set = set(f.lower() for f in facts)
+            for ef in enriched:
+                if ef.lower() not in original_set:
+                    facts.append(ef)
+                    original_set.add(ef.lower())
 
         # 3. Her claim'i kontrol et
         for claim in claims:
