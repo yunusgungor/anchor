@@ -79,47 +79,10 @@ class BloomIndex:
     
     def build_from_rules(self, rules_path: str):
         """Bir rules klasöründen tüm topic/alias/tag'leri index'e ekle."""
-        root = Path(rules_path)
-        if not root.exists():
-            return
-        
-        for fpath in root.rglob("*.md"):
-            try:
-                text = fpath.read_text(encoding="utf-8")
-                # Frontmatter parse (basit)
-                if text.startswith("---"):
-                    parts = text.split("---", 2)
-                    if len(parts) >= 3:
-                        fm_text = parts[1].strip()
-                        content = parts[2]
-                        
-                        # Topic
-                        for line in fm_text.split("\n"):
-                            line = line.strip()
-                            if line.startswith("topic:"):
-                                val = line.split(":", 1)[1].strip().strip('"').strip("'")
-                                self.add(val)
-                                self.add(fpath.stem)
-                            elif line.startswith("aliases:"):
-                                val = line.split(":", 1)[1].strip().strip('"').strip("'")
-                                if val.startswith("[") and val.endswith("]"):
-                                    for alias in val[1:-1].split(","):
-                                        self.add(alias.strip().strip('"').strip("'"))
-                                else:
-                                    self.add(val)
-                            elif line.startswith("tags:"):
-                                val = line.split(":", 1)[1].strip().strip('"').strip("'")
-                                if val.startswith("[") and val.endswith("]"):
-                                    for tag in val[1:-1].split(","):
-                                        self.add(tag.strip().strip('"').strip("'"))
-                                else:
-                                    self.add(val)
-                        
-                        # Content'ten başlıkları da ekle (h1, h2)
-                        for match in __import__("re").findall(r'^#+\s+(.+)$', content, __import__("re").MULTILINE):
-                            self.add(match.strip())
-            except Exception:
-                pass
+        from anchor.parser.frontmatter import extract_all_topics_and_aliases_from_dir
+        items = extract_all_topics_and_aliases_from_dir(rules_path)
+        for item in items:
+            self._set.add(item)
     
     @property
     def size(self) -> int:

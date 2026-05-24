@@ -137,14 +137,47 @@ class ClaimExtractor:
         return claims
 
     def _segment_sentences(self, text: str) -> list[tuple[str, int]]:
-        pattern = re.compile(r'[^.!?\n]+[.!?\n]+')
+        """
+        Metni cümlelere ayır — abbreviation-aware.
+        
+        Kısaltmaları (Dr., Mr., vs., vb., Yrd., Prof., No., St., vb.) 
+        cümle sonu sanmaz.
+        """
+        # Kısaltma listesi (cümle sonu sanılmaması gereken)
+        abbr_pattern = re.compile(
+            r'\b(?:'
+            r'Dr|Mr|Mrs|Ms|Prof|St|Ave|Blvd|Rd|Sq|No|vs|vb|vd|yn'
+            r'|Yrd|Doç|Arş|Gör|Cad|Sok|Mah|Apt|Tel|Fax'
+            r'|AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA'
+            r'|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK'
+            r'|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY'
+            r')\.'
+        )
+        
+        # Kısaltmaları placeholder ile değiştir
+        placeholders = {}
+        def _replace(match):
+            ph = f"\x00ABBR{len(placeholders)}\x00"
+            placeholders[ph] = match.group(0)
+            return ph
+        
+        text_clean = abbr_pattern.sub(_replace, text)
+        
+        # Şimdi güvenli cümle bölme
+        sent_pattern = re.compile(r'[^.!?\n]+[.!?\n]+')
         sentences = []
-        for m in pattern.finditer(text):
+        for m in sent_pattern.finditer(text_clean):
             sent = m.group().strip()
+            # Placeholder'ları geri çevir
+            for ph, original in placeholders.items():
+                sent = sent.replace(ph, original)
             if len(sent) > 10:
                 sentences.append((sent, m.start()))
+        
+        # Regex hiç eşleşmediyse tüm metni tek cümle olarak al
         if not sentences and text.strip():
             sentences.append((text.strip(), 0))
+        
         return sentences
 
     @property
@@ -268,10 +301,12 @@ class ConflictDetector:
     """
     Üst seviye detector — tüm bileşenleri koordine eder.
     ClaimExtractor → FactMatcher → SeverityEngine
+    
+    Extractor dışarıdan enjekte edilebilir (AnchorEngine ile paylaşmak için).
     """
 
-    def __init__(self):
-        self.extractor = ClaimExtractor()
+    def __init__(self, extractor: Optional["ClaimExtractor"] = None):
+        self.extractor = extractor or ClaimExtractor()
         self.matcher = FactMatcher()
         self.severity = SeverityEngine()
         self._total_calls = 0
@@ -324,19 +359,54 @@ class ConflictDetector:
         return conflicts
 
     def _extract_facts(self, content: str) -> list[str]:
-        """Rule içeriğinden fact'leri çıkar (basit)."""
+        """Rule içeriğinden fact'leri çıkar.
+        
+        Desteklenen pattern'ler:
+          - Liste öğeleri: ``- fact``, ``* fact``
+          - Kalın metin: ``**label:** value``
+          - Pipe tablosu: ``| Konu | Doğrusu |`` (3. sütun)
+          - Kod blokları: ``kodu`` (içerik)
+          - Normal paragraflar (boş satırla ayrılmış)
+        """
         facts = []
         lines = content.split('\n')
-        for line in lines:
-            line = line.strip()
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Liste öğeleri: - veya * ile başlayan
             if line.startswith('- ') or line.startswith('* '):
                 fact = line[2:].strip()
                 if fact and len(fact) > 5:
                     facts.append(fact)
-            elif line.startswith('**') and ':' in line:
+            
+            # Kalın metin: **label:** value
+            elif re.match(r'\*\*[^*]+\*\*:', line):
                 parts = line.split(':', 1)
                 if len(parts) == 2:
-                    facts.append(parts[1].strip().strip('*').strip())
+                    fact = parts[1].strip().strip('*').strip()
+                    if fact and len(fact) > 3:
+                        facts.append(fact)
+            
+            # Pipe tablosu: | Konu | LLM'in Dediği | Doğrusu |
+            elif line.startswith('|') and line.count('|') >= 3:
+                cols = [c.strip() for c in line.split('|') if c.strip()]
+                # Son sütun doğru bilgi
+                if len(cols) >= 3 and cols[-1] not in ('Doğrusu', '---', ''):
+                    facts.append(cols[-1])
+            
+            # Kod bloğu içeriği
+            elif line.startswith('```'):
+                i += 1
+                while i < len(lines) and not lines[i].strip().startswith('```'):
+                    code_line = lines[i].strip()
+                    if code_line and len(code_line) > 5:
+                        facts.append(code_line)
+                    i += 1
+            
+            i += 1
+        
         return facts if facts else [content.strip()]
 
     @property

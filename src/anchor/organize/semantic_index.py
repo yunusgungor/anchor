@@ -35,6 +35,8 @@ class SemanticIndex:
         
         self._doc_freq: dict[str, int] = defaultdict(int)
         self._total_docs = 0
+        self._doc_matrix: np.ndarray = np.zeros((0, 0), dtype=np.float32)
+        self._doc_ids: list[str] = []
     
     def _tokenize(self, text: str) -> list[str]:
         """Basit tokenization."""
@@ -116,10 +118,15 @@ class SemanticIndex:
                 vec /= norm
             
             self._doc_vectors[rule_id] = vec
+        
+        # Batch query için matrix rebuild
+        self._rebuild_matrix()
     
     def query(self, text: str, top_k: int = 5) -> list[tuple[str, float]]:
         """
         Bir metin ver, en yakın rule'ları döndür.
+        
+        Batch vektör işlemi (numpy matmul) — Python loop yok.
         
         Returns:
             [(rule_id, cosine_similarity), ...]
@@ -146,15 +153,39 @@ class SemanticIndex:
         if norm > 0:
             q_vec /= norm
         
-        # Cosine similarity (dot product, çünkü vektörler normalize)
-        scores = []
-        for rule_id, doc_vec in self._doc_vectors.items():
-            sim = float(np.dot(q_vec, doc_vec))
-            if sim > 0.01:  # Noise threshold
-                scores.append((rule_id, sim))
+        # Batch similarity: tüm doc vectors'ları matriste topla
+        if not hasattr(self, '_doc_matrix') or len(self._doc_matrix) != len(self._doc_vectors):
+            self._rebuild_matrix()
         
+        # Tek matmul ile tüm cosine similarity'ler
+        similarities = np.dot(self._doc_matrix, q_vec)
+        
+        # Noise threshold üzerindekileri al
+        mask = similarities > 0.01
+        if not np.any(mask):
+            return []
+        
+        indices = np.where(mask)[0]
+        scores = [(self._doc_ids[int(i)], float(similarities[int(i)])) for i in indices]
         scores.sort(key=lambda x: -x[1])
+        
         return scores[:top_k]
+    
+    def _rebuild_matrix(self):
+        """Tüm doc vectors'ları tek numpy matrisinde birleştir."""
+        if not self._doc_vectors:
+            self._doc_matrix = np.zeros((0, 0), dtype=np.float32)
+            self._doc_ids = []
+            return
+        
+        doc_ids = []
+        vectors = []
+        for rid, vec in self._doc_vectors.items():
+            doc_ids.append(rid)
+            vectors.append(vec)
+        
+        self._doc_matrix = np.array(vectors, dtype=np.float32)
+        self._doc_ids = doc_ids
     
     def stats(self) -> dict:
         return {

@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from anchor.detect import Severity, Conflict
+from anchor import Severity, Conflict
 
 
 class PatchStrategy(Enum):

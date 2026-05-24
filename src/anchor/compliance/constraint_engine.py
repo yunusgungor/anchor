@@ -130,8 +130,16 @@ class FormatChecker:
                             fix_suggestion=text.replace("?", "!"),
                         ))
                 elif elem == "küfür":
-                    # Basit küfür listesi
-                    bad_words = ["kötü_kelime_1", "kötü_kelime_2"]
+                    # Türkçe + İngilizce küfür tespiti
+                    bad_words = [
+                        # Türkçe
+                        "amk", "aq", "siktir", "sikik", "orospu", "piç", "göt", 
+                        "yarrak", "ibne", "pezevenk", "ananı", "babanı",
+                        "mal", "gerizekalı", "salak", "aptal", "embesil",
+                        # İngilizce
+                        "fuck", "shit", "asshole", "bastard", "bitch",
+                        "motherfucker", "dickhead", "cocksucker",
+                    ]
                     for bad in bad_words:
                         if bad in text.lower():
                             violations.append(ConstraintViolation(
@@ -187,11 +195,26 @@ class StyleChecker:
     """
     
     LEXICONS = {
-        "humor": ["😂", "haha", "şaka", "ironik", "komik", "gül", "kahkaha", "mizah"],
-        "confident": ["kesin", "en iyi", "dene", "mutlaka", "garanti", "hallederiz", "başarırız"],
-        "casual": ["ya", "falan", "işte", "bi", "bişey", "neyse", "hani"],
-        "formal": ["saygılarımla", "hususi", "münhasır", "bilhassa", "özellikle"],
-        "urgent": ["hemen", "acele", "son tarih", "bitmedi", "erteleme"],
+        "humor": ["😂", "🤣", "😄", "😅", "haha", "hehe", "şaka", "ironik", "komik", 
+                  "gül", "kahkaha", "mizah", "espiri", "eğlenceli", "absürt", "grotesk",
+                  "parodi", "karikatür", "gırgır", "dalga geç", "espri", "komedi"],
+        "confident": ["kesin", "en iyi", "dene", "mutlaka", "garanti", "hallederiz", 
+                      "başarırız", "emin", "şüphesiz", "tartışmasız", "net", "açık",
+                      "kesinlikle", "tabii ki", "elbette", "kuşkusuz", "muhakkak"],
+        "casual": ["ya", "falan", "işte", "bi", "bişey", "neyse", "hani", "yani",
+                   "bence", "şey", "yok artık", "oha", "valla", "baya", "çok", "süper"],
+        "formal": ["saygılarımla", "hususi", "münhasır", "bilhassa", "özellikle",
+                   "rica ederim", "teşekkür ederim", "arz ederim", "bilgilerinize",
+                   "saygıdeğer", "kıymetli", "değerli", "hitaben", "takdim"],
+        "urgent": ["hemen", "acele", "son tarih", "bitmedi", "erteleme", "acil",
+                   "önemli", "kritik", "ivedi", "derhal", "zaman daralıyor",
+                   "son gün", "kaçırma", "fırsat", "sınırlı"],
+        "analytical": ["veri", "analiz", "rapor", "istatistik", "sonuç", "bulgu",
+                       "inceleme", "değerlendirme", "parametre", "metrik", "ölçüm",
+                       "korelasyon", "tahmin", "projeksiyon", "trend", "grafik"],
+        "empathetic": ["anlıyorum", "hissediyorum", "üzgünüm", "geçmiş olsun",
+                       "tebrik ederim", "sevindim", "başın sağolsun", "yanındayım",
+                       "destek", "anlayış", "empati", "duyarlı"],
     }
     
     def check(self, text: str, constraints: dict) -> list[ConstraintViolation]:

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Test cache
+.pytest_cache/
+.coverage
+.coverage.*
+*.benchmark.idx
+*.benchmark.idx.npz
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker build artifacts
+Dockerfile
+docker-compose.yml

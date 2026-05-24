@@ -9,6 +9,7 @@ Scalable Rule Store — 10.000+ rule için optimize edilmiş depolama.
   - Binary Cache: Serialize edilmiş index (cold start < 50ms)
 """
 
+import logging
 import pickle
 import time
 from collections import OrderedDict
@@ -21,6 +22,9 @@ from anchor.organize.bloom_index import BloomIndex
 from anchor.organize.semantic_index import SemanticIndex
 from anchor.store.rule_store import RuleStore
 from anchor.store.binary_index import BinaryIndexManager
+from anchor.parser.frontmatter import extract_topic, extract_metadata
+
+logger = logging.getLogger(__name__)
 
 
 class ScalableRuleStore:
@@ -129,51 +133,30 @@ class ScalableRuleStore:
         )
         
         elapsed = (time.perf_counter() - t0) * 1000
-        print(f"✅ ScalableStore rebuild: {elapsed:.1f}ms | shards={len(self._router.list_shards())} | bloom={self._bloom.size} | vectors={self._semantic.stats()['indexed_vectors']}")
+        logger.info("ScalableStore rebuild: %.1fms | shards=%d | bloom=%d | vectors=%d",
+                     elapsed, len(self._router.list_shards()), self._bloom.size,
+                     self._semantic.stats()['indexed_vectors'])
     
     def _extract_topic_from_file(self, fpath: Path) -> Optional[str]:
-        """Sadece topic çıkar — tam parse değil."""
+        """Sadece topic çıkar — tam parse değil (utility kullanır)."""
         try:
-            with open(fpath, 'r', encoding='utf-8') as f:
-                first_line = f.readline()
-                if first_line.strip() == "---":
-                    for line in f:
-                        if line.strip() == "---":
-                            break
-                        if line.strip().startswith("topic:"):
-                            return line.split(":", 1)[1].strip().strip('"').strip("'")
+            text = fpath.read_text(encoding="utf-8")
+            return extract_topic(text)
         except Exception:
             pass
         return None
     
     def _extract_meta_from_file(self, fpath: Path) -> tuple:
-        """Frontmatter'dan metadata çıkar."""
+        """Frontmatter'dan metadata çıkar (utility kullanır)."""
         try:
             text = fpath.read_text(encoding="utf-8")
-            if text.startswith("---"):
-                parts = text.split("---", 2)
-                if len(parts) >= 3:
-                    fm_text = parts[1].strip()
-                    fm = {}
-                    for line in fm_text.split("\n"):
-                        if ":" in line:
-                            key, _, val = line.partition(":")
-                            key = key.strip()
-                            val = val.strip()
-                            if val.startswith("[") and val.endswith("]"):
-                                val = [v.strip().strip("'\"") for v in val[1:-1].split(",")]
-                            elif val.isdigit():
-                                val = int(val)
-                            elif val.replace(".", "").isdigit():
-                                val = float(val)
-                            fm[key] = val
-                    
-                    return (
-                        fm.get("aliases", []),
-                        fm.get("tags", []),
-                        fm.get("priority", 5),
-                        fm.get("strictness", 0.8),
-                    )
+            meta = extract_metadata(text, fpath.stem)
+            return (
+                meta["aliases"],
+                meta["tags"],
+                meta["priority"],
+                meta["strictness"],
+            )
         except Exception:
             pass
         return [], [], 5, 0.8
@@ -282,6 +265,7 @@ class ScalableRuleStore:
     def stats(self) -> dict:
         total_lookups = self._hits + self._misses
         return {
+            "total_rules": len(self._shard_topic_map) // 2,  # topic + rule_id duplicates
             "shards": len(self._router.list_shards()),
             "bloom_items": self._bloom.size,
             "semantic_vocab": self._semantic.stats()["vocab_size"],

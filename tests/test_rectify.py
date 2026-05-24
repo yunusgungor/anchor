@@ -3,8 +3,8 @@ Anchor Rectification — PatchEngine testleri.
 """
 
 import pytest
-from anchor.rectify import PatchEngine, PatchStrategy
 from anchor import Conflict, Severity
+from anchor.rectify import PatchEngine, PatchStrategy
 
 
 class TestPatchEngine:

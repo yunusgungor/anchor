@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from anchor.parser.frontmatter import extract_topic, extract_aliases
+
 
 @dataclass
 class DomainShard:
@@ -78,36 +80,19 @@ class ShardRouter:
                             self._topic_map[alias.lower()] = shard.name
     
     def _extract_aliases(self, md_file: Path) -> list[str]:
-        """Bir .md dosyasının frontmatter'ından alias'ları çıkar."""
+        """Bir .md dosyasının frontmatter'ından alias'ları çıkar (utility kullanır)."""
         try:
             text = md_file.read_text(encoding="utf-8")
-            if text.startswith("---"):
-                parts = text.split("---", 2)
-                if len(parts) >= 3:
-                    fm_text = parts[1].strip()
-                    for line in fm_text.split("\n"):
-                        line = line.strip()
-                        if line.startswith("aliases:"):
-                            val = line.split(":", 1)[1].strip()
-                            if val.startswith("[") and val.endswith("]"):
-                                return [a.strip().strip('"').strip("'") for a in val[1:-1].split(",")]
-                            else:
-                                return [val.strip('"').strip("'")]
+            return extract_aliases(text)
         except Exception:
             pass
         return []
     
     def _extract_topic(self, md_file: Path) -> Optional[str]:
-        """Bir .md dosyasının frontmatter'ından topic çıkar."""
+        """Bir .md dosyasının frontmatter'ından topic çıkar (utility kullanır)."""
         try:
             text = md_file.read_text(encoding="utf-8")
-            if text.startswith("---"):
-                parts = text.split("---", 2)
-                if len(parts) >= 3:
-                    fm_text = parts[1].strip()
-                    for line in fm_text.split("\n"):
-                        if line.strip().startswith("topic:"):
-                            return line.split(":", 1)[1].strip().strip('"').strip("'")
+            return extract_topic(text)
         except Exception:
             pass
         return None

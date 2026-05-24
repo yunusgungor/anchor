@@ -14,9 +14,8 @@ from collections import defaultdict, OrderedDict
 from pathlib import Path
 from typing import Optional
 
-import yaml
-
 from anchor import Rule
+from anchor.parser.frontmatter import parse_frontmatter, extract_content, extract_metadata
 
 
 class RuleStore:
@@ -142,24 +141,15 @@ class RuleStore:
         text = fpath.read_text(encoding='utf-8')
         rule_id = fpath.stem
         
-        # YAML frontmatter'ı çıkar
-        fm = {}
-        content = text
+        # Frontmatter utility kullan
+        content = extract_content(text)
+        meta = extract_metadata(text, rule_id)
         
-        if text.startswith('---'):
-            parts = text.split('---', 2)
-            if len(parts) >= 3:
-                try:
-                    fm = yaml.safe_load(parts[1]) or {}
-                    content = parts[2]
-                except yaml.YAMLError:
-                    pass
-        
-        topic = fm.get('topic', rule_id)
-        aliases = fm.get('aliases', [])
-        tags = fm.get('tags', [])
-        priority = fm.get('priority', 5)
-        strictness = fm.get('strictness', 0.8)
+        topic = meta["topic"]
+        aliases = meta["aliases"]
+        tags = meta["tags"]
+        priority = meta["priority"]
+        strictness = meta["strictness"]
         
         return Rule(
             id=rule_id,

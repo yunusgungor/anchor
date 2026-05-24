@@ -24,6 +24,12 @@ from typing import Optional
 import json
 import re
 
+from anchor.parser.frontmatter import (
+    parse_frontmatter,
+    extract_content,
+    extract_metadata,
+)
+
 
 @dataclass
 class ParsedRule:
@@ -159,50 +165,34 @@ class RuleParser:
           1. YAML frontmatter var mı? → Mevcut parser
           2. Yoksa → Akıllı extraction (topic, facts, confusions)
         """
-        # YAML frontmatter kontrolü
-        if text.startswith("---"):
-            return self._parse_frontmatter(text, rule_id)
+        from anchor.parser.frontmatter import parse_frontmatter
+        
+        # YAML frontmatter kontrolü (utility kullan)
+        fm = parse_frontmatter(text)
+        if fm:
+            return self._parse_frontmatter(text, rule_id, fm)
         
         # Düz metin — akıllı extraction
         return self._parse_plain(text, rule_id)
     
-    def _parse_frontmatter(self, text: str, rule_id: str) -> ParsedRule:
-        """YAML frontmatter'lı markdown parse et (mevcut parser)."""
-        fm = {}
-        content = text
+    def _parse_frontmatter(self, text: str, rule_id: str, fm: dict | None = None) -> ParsedRule:
+        """YAML frontmatter'lı markdown parse et (utility kullanır)."""
+        from anchor.parser.frontmatter import parse_frontmatter, extract_content, extract_metadata
         
-        parts = text.split("---", 2)
-        if len(parts) >= 3:
-            fm_text = parts[1].strip()
-            content = parts[2]
-            
-            for line in fm_text.split("\n"):
-                if ":" in line:
-                    key, _, val = line.partition(":")
-                    key = key.strip()
-                    val = val.strip()
-                    
-                    if val.startswith("[") and val.endswith("]"):
-                        val = [v.strip().strip("'\"") for v in val[1:-1].split(",")]
-                    elif val.startswith('"') and val.endswith('"'):
-                        val = val.strip('"')
-                    elif val.startswith("'") and val.endswith("'"):
-                        val = val.strip("'")
-                    elif val.isdigit():
-                        val = int(val)
-                    elif val.replace(".", "").isdigit():
-                        val = float(val)
-                    
-                    fm[key] = val
+        if fm is None:
+            fm = parse_frontmatter(text)
+        
+        content = extract_content(text)
+        meta = extract_metadata(text, rule_id)
         
         return ParsedRule(
             id=rule_id,
-            topic=fm.get("topic", rule_id),
+            topic=meta["topic"],
             content=content,
-            aliases=fm.get("aliases", []),
-            tags=fm.get("tags", []),
-            priority=fm.get("priority", 5),
-            strictness=fm.get("strictness", 0.8),
+            aliases=meta["aliases"],
+            tags=meta["tags"],
+            priority=meta["priority"],
+            strictness=meta["strictness"],
             source_format="md_frontmatter",
         )
     

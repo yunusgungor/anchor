@@ -46,7 +46,7 @@ class AnchorEngine:
     def __init__(self, rules_path: str, index_path: Optional[str] = None):
         self.store = ScalableRuleStore(rules_path, index_path)
         self.extractor = ClaimExtractor()
-        self.detector = ConflictDetector()
+        self.detector = ConflictDetector(extractor=self.extractor)  # Paylaşılan extractor
         self.patcher = PatchEngine()
         
         # İstatistik
@@ -193,10 +193,16 @@ class AnchorEngine:
                 "modification_rate": self._total_modified / max(self._total_processed, 1),
             },
             "store": self.store.stats(),
+            "extractor": {
+                "avg_latency_us": self.extractor.avg_latency_us,
+            },
             "detector": {
                 "avg_latency_us": self.detector.avg_latency_us,
             },
             "patcher": {
+                "avg_latency_us": self.patcher.avg_latency_us,
+            },
+            "rectifier": {
                 "avg_latency_us": self.patcher.avg_latency_us,
             },
         }

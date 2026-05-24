@@ -2,9 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Sistem bağımlılıkları
+# Sistem bağımlılıkları (curl eklendi — healthcheck için)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Python bağımlılıkları
