@@ -28,6 +28,7 @@ from anchor.config import (
     TOPIC_OUTPUT_KEYWORD_DENSITY_THRESHOLD,
     TOPIC_DOMAIN_MAX_RULES,
     RULE_DOMAIN_MAP,
+    WF_QUERY_DIRECT_MAX_WORKFLOW_RULES,
 )
 from anchor.store.scale_store import ScalableRuleStore
 from anchor.detect import (
@@ -213,6 +214,12 @@ class AnchorEngine:
             topic_names = [t.name for t in topics]
         
         rules = self.store.query(topic_names, llm_output)
+        if user_query.strip() and rules:
+            workflow_rules = [r for r in rules if getattr(r, 'steps', None)]
+            non_workflow_rules = [r for r in rules if not getattr(r, 'steps', None)]
+            if len(workflow_rules) > WF_QUERY_DIRECT_MAX_WORKFLOW_RULES:
+                workflow_rules = workflow_rules[:WF_QUERY_DIRECT_MAX_WORKFLOW_RULES]
+            rules = workflow_rules + non_workflow_rules
         t2 = time.perf_counter()
         timings['knowledge_retrieval'] = (t2 - t1) * 1_000_000
         

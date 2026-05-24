@@ -8,32 +8,37 @@ steps:
   - id: reproduce
     title: "Bug'ı Reprodüse Et (Kesin Adımlarla)"
     mandatory: true
-    aliases: ["reproduced the bug", "reproduced issue"]
-    checks: ["reprod...[truncated]
+    aliases: ["reproduced the bug", "reproduced issue", "confirmed the bug"]
+    checks: ["reproduce", "steps"]
   - id: root-cause
     title: "Kök Neden Analizi (5 Whys)"
     mandatory: true
     depends_on: [reproduce]
-    checks: ["root cause", "5 whys", "why", "trace", "kök neden"]
+    aliases: ["analyzed the root cause", "found the root cause", "identified the root cause"]
+    checks: ["root cause", "trace"]
   - id: failing-test
     title: "Bug'ı Gösteren Test Yaz"
     mandatory: true
     depends_on: [root-cause]
-    checks: ["fail", "test", "reproduce", "assert", "regression test"]
+    aliases: ["wrote a failing test", "added a regression test"]
+    checks: ["fail", "test"]
   - id: fix-code
     title: "Kodu Düzelt (Minimal Değişiklik)"
     mandatory: true
     depends_on: [failing-test]
-    checks: ["fix", "minimal", "change", "pass", "patch"]
+    aliases: ["implemented the fix", "applied the fix", "patched the bug"]
+    checks: ["fix", "patch"]
   - id: regression
     title: "Regresyon Testlerini Çalıştır"
     mandatory: true
     depends_on: [fix-code]
-    checks: ["regression", "all tests", "CI", "pipeline", "test suite"]
+    aliases: ["verified the test passes", "ran the test suite", "confirmed tests pass"]
+    checks: ["regression", "test suite", "all tests"]
   - id: prevent-recurrence
     title: "Tekrarını Önle (Post-mortem)"
     mandatory: false
     depends_on: [regression]
+    aliases: ["documented the change", "added preventive follow-up"]
     checks: ["postmortem", "prevent", "monitoring", "alert", "önlem"]
 ---
 

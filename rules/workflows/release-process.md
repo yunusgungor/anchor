@@ -9,47 +9,55 @@ steps:
     title: "Versiyon Numarasını Güncelle (SemVer)"
     mandatory: true
     aliases: ["bumped the version", "updated version"]
-  ...[truncated]
+    checks: ["version", "semver"]
   - id: changelog
     title: "Changelog'u Güncelle"
     mandatory: true
     depends_on: [version-bump]
-    checks: ["changelog", "release notes", "unreleased"]
+    aliases: ["updated release notes", "updated the changelog", "release notes updated"]
+    checks: ["changelog", "release notes"]
   - id: tag-commit
     title: "Git Tag Oluştur (Annotated + Signed)"
     mandatory: true
     depends_on: [changelog]
-    checks: ["tag", "annotated", "sign", "git tag"]
+    aliases: ["tagged the release", "created a git tag"]
+    checks: ["tag", "git tag"]
   - id: build-artifact
     title: "Build ve Artifact Oluştur"
     mandatory: true
     depends_on: [tag-commit]
-    checks: ["build", "artifact", "docker", "package", "binary"]
+    aliases: ["built the artifact", "built the package"]
+    checks: ["build", "artifact"]
   - id: staging-deploy
     title: "Staging Ortamına Dağıt"
     mandatory: true
     depends_on: [build-artifact]
-    checks: ["staging", "deploy", "smoke test"]
+    aliases: ["deployed to staging"]
+    checks: ["staging", "deploy"]
   - id: staging-tests
     title: "Staging'de Entegrasyon Testleri"
     mandatory: true
     depends_on: [staging-deploy]
-    checks: ["integration", "e2e", "smoke", "regression"]
+    aliases: ["validated smoke checks", "ran staging validation", "integration tests in staging"]
+    checks: ["integration", "smoke"]
   - id: prod-approval
     title: "Prod Onayı Al (Gate)"
     mandatory: true
     depends_on: [staging-tests]
-    checks: ["approve", "sign-off", "gate", "release manager"]
+    aliases: ["got approval", "received signoff", "prod approval obtained"]
+    checks: ["approve", "sign-off"]
   - id: prod-deploy
     title: "Production Dağıtımı"
     mandatory: true
     depends_on: [prod-approval]
-    checks: ["prod", "canary", "blue-green", "feature flag", "deploy"]
+    aliases: ["deployed to production", "production rollout"]
+    checks: ["prod", "deploy"]
   - id: post-deploy
     title: "Post-Deploy Monitoring"
     mandatory: true
     depends_on: [prod-deploy]
-    checks: ["monitor", "health", "alert", "error rate", "rollback"]
+    aliases: ["monitored the rollout", "monitored production", "post deploy monitoring"]
+    checks: ["monitor", "rollback"]
 ---
 
 # Release and Deployment Process

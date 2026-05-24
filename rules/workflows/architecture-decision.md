@@ -8,38 +8,44 @@ steps:
   - id: define-context
     title: "Problemi ve Bağlamı Tanımla"
     mandatory: true
-    aliases: ["defined the problem", "defined the context", "set the sc...[truncated]
-    checks: ["context", "problem", "constraint", "goal", "scope"]
+    aliases: ["defined the problem", "defined the context", "set the scope"]
+    checks: ["context", "problem", "scope"]
   - id: research-options
     title: "Seçenekleri Araştır (En Az 3 Alternatif)"
     mandatory: true
     depends_on: [define-context]
-    checks: ["option", "alternative", "research", "trade-off", "compare"]
+    aliases: ["evaluated options", "researched alternatives", "considered alternatives"]
+    checks: ["option", "alternative", "compare"]
   - id: evaluate
     title: "Her Seçeneği Değerlendir (MECE)"
     mandatory: true
     depends_on: [research-options]
-    checks: ["pro/con", "cost", "benefit", "risk", "effort", "evaluation"]
+    aliases: ["compared tradeoffs", "weighed tradeoffs", "evaluated tradeoffs"]
+    checks: ["trade-off", "benefit", "risk"]
   - id: decide
     title: "Karar Ver ve Gerekçelendir"
     mandatory: true
     depends_on: [evaluate]
-    checks: ["decision", "rationale", "winner", "reason", "selected"]
+    aliases: ["chose an approach", "made the decision", "selected the approach"]
+    checks: ["decision", "selected"]
   - id: write-adr
     title: "ADR Belgesini Yaz (docs/adr/)"
     mandatory: true
     depends_on: [decide]
-    checks: ["ADR", "status", "context", "decision", "consequences"]
+    aliases: ["documented the adr", "wrote the adr", "recorded the adr"]
+    checks: ["ADR", "decision"]
   - id: review-adr
     title: "ADR'yi Takımla Birlikte İncele"
     mandatory: true
     depends_on: [write-adr]
-    checks: ["review", "team", "feedback", "consensus"]
+    aliases: ["reviewed it with the team", "shared the adr for review", "team reviewed the adr"]
+    checks: ["review", "team"]
   - id: implement
     title: "Kararı Kod ve Dokümantasyona Yansıt"
     mandatory: true
     depends_on: [review-adr]
-    checks: ["implement", "code", "doc", "update", "migration"]
+    aliases: ["recorded the decision", "implemented the decision", "updated docs and code"]
+    checks: ["implement", "doc", "code"]
 ---
 
 # Architecture Decision Process

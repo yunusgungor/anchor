@@ -54,6 +54,11 @@ WF_SEMANTIC_CONFIDENCE_MIN: Final[float] = 0.58  # Semantic step match minimum c
 WF_SEMANTIC_SENTENCE_MIN_LEN: Final[int] = 12    # Semantic match için min cümle uzunluğu
 WF_CHECK_FUZZY_MAX_DISTANCE: Final[int] = 2      # Levenshtein max distance
 WF_COMPOUND_CHECK_MIN_WORDS: Final[int] = 2      # Compound check için min kelime sayısı
+WF_ORDER_MIN_CONFIDENCE: Final[float] = 0.60     # Order violation için min step confidence
+WF_INCOMPLETE_WARNING_COVERAGE: Final[float] = 0.50
+WF_INCOMPLETE_SKIP_COVERAGE: Final[float] = 0.80
+WF_CHECK_ACTIVATION_COVERAGE: Final[float] = 0.34
+WF_QUERY_DIRECT_MAX_WORKFLOW_RULES: Final[int] = 2
 
 # ============================================================
 # CONFLICT DETECTION

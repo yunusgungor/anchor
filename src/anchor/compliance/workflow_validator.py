@@ -23,6 +23,10 @@ from anchor.config import (
     WF_SEMANTIC_SENTENCE_MIN_LEN,
     WF_CHECK_FUZZY_MAX_DISTANCE,
     WF_COMPOUND_CHECK_MIN_WORDS,
+    WF_ORDER_MIN_CONFIDENCE,
+    WF_INCOMPLETE_WARNING_COVERAGE,
+    WF_INCOMPLETE_SKIP_COVERAGE,
+    WF_CHECK_ACTIVATION_COVERAGE,
 )
 
 logger = logging.getLogger(__name__)
@@ -251,7 +255,7 @@ class StepExtractor:
                             check_words_found += 0.75
                             break
                 coverage = check_words_found / max(1, len(step.checks))
-                if coverage >= 0.34:
+                if coverage >= WF_CHECK_ACTIVATION_COVERAGE:
                     confidence = 0.35 + (0.45 * min(1.0, coverage))
                     if confidence > best_confidence:
                         best_confidence = confidence
@@ -293,15 +297,17 @@ class OrderValidator:
 
         violations: list[StepViolation] = []
         step_map: dict[str, Step] = {s.id: s for s in defined_steps}
-        exec_map: dict[str, int] = {sid: pos for sid, _, pos in executed_steps}
+        exec_map: dict[str, tuple[float, int]] = {sid: (conf, pos) for sid, conf, pos in executed_steps}
 
-        for step_id, _, position in executed_steps:
+        for step_id, step_conf, position in executed_steps:
             step = step_map.get(step_id)
             if not step or not step.depends_on:
                 continue
             for dep_id in step.depends_on:
                 if dep_id in exec_map:
-                    dep_position = exec_map[dep_id]
+                    dep_conf, dep_position = exec_map[dep_id]
+                    if step_conf < WF_ORDER_MIN_CONFIDENCE or dep_conf < WF_ORDER_MIN_CONFIDENCE:
+                        continue
                     if position < dep_position:
                         step_obj = step_map.get(step_id)
                         violations.append(StepViolation(
@@ -370,9 +376,9 @@ class CompletenessValidator:
                         missing_checks.append(check)
 
                 coverage = matched_score / max(1, len(step.checks))
-                if missing_checks and coverage < 0.8:
-                    severity = Severity.WARNING if coverage >= 0.5 else Severity.ERROR
-                    confidence = 0.7 if coverage >= 0.5 else 0.85
+                if missing_checks and coverage < WF_INCOMPLETE_SKIP_COVERAGE:
+                    severity = Severity.WARNING if coverage >= WF_INCOMPLETE_WARNING_COVERAGE else Severity.ERROR
+                    confidence = 0.7 if coverage >= WF_INCOMPLETE_WARNING_COVERAGE else 0.85
                     violations.append(StepViolation(
                         violation_type=ViolationType.INCOMPLETE_STEP,
                         step_id=step.id,
