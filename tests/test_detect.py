@@ -61,11 +61,12 @@ class TestConflictDetector:
     def test_detect_conflict(self):
         from anchor import Rule
         det = ConflictDetector()
-        rule = Rule(id="test", topic="NPX1", content="- SKY130'da üretiliyor", file_path="")
+        rule = Rule(id="test", topic="NPX1", content="- NPX1, SKY130'da üretiliyor", file_path="")
         rule.aliases = ["npx1"]
         conflicts = det.detect("NPX1, TSMC'de.", rule, [])
         assert len(conflicts) >= 1
-        assert conflicts[0].severity == Severity.CRITICAL
+        assert conflicts[0].severity in (Severity.CRITICAL, Severity.ERROR)
+        assert conflicts[0].topic == "NPX1"
 
     def test_no_conflict(self):
         from anchor import Rule

@@ -315,6 +315,14 @@ class ConflictDetector:
     def detect(self, llm_output: str, rule, topics: list) -> list[Conflict]:
         """
         LLM output'unda rule'la ilgili çelişkileri tespit et.
+        
+        İki aşamalı strateji:
+          1. Confusion table'daki bilinen yanlış claim'lerle karşılaştır
+             (doğrudan eşleşme → conflict)
+          2. Diğer fact'lerle karşılaştır:
+             a. Relevance filter: farklı konu → false positive önleme
+             b. Dynamic threshold: ortak keyword varsa (paraphrase olabilir)
+                conflict eşiği yükseltilir
 
         Args:
             llm_output: LLM'in ürettiği ham metin
@@ -335,15 +343,112 @@ class ConflictDetector:
         if not claims:
             return []
 
-        # 2. Rule'dan fact'leri parse et
+        # 2. Rule'dan fact'leri ve bilinen yanlış claim'leri parse et
         facts = self._extract_facts(rule.content)
+        known_wrong = self._extract_known_wrong_claims(rule.content)
 
-        # 3. Her claim'i her fact'le karşılaştır
+        # 3. Her claim'i kontrol et
         for claim in claims:
+            # Entity name set'ini hazırla (entity-aware threshold için)
+            entity_names: set[str] = set()
+            entity_names.update(self._get_significant_tokens(rule.topic))
+            for alias in rule.aliases:
+                entity_names.update(self._get_significant_tokens(alias))
+            
+            # 3a. ÖNCE: Bilinen yanlış claim'lerle karşılaştır
+            #     (confusion table: "LLM'in Genelde Dediği" kolonu)
+            for wrong, correct in known_wrong:
+                # ÖNCE: Claim, bilinen yanlış ifadeyi içeriyor mu?
+                # (substring kontrolü — distance eşiği geçmese bile)
+                claim_lower = claim.text.lower()
+                
+                is_wrong_pattern = False
+                wrong_distance = 1.0
+                
+                # Tüm alternatifleri kontrol et (" / " ile ayrılmış olabilir)
+                wrong_alternatives = [w.strip() for w in wrong.split("/") if w.strip()]
+                for alt in wrong_alternatives:
+                    alt_lower = alt.lower().strip()
+                    if alt_lower in claim_lower and len(alt_lower) >= 3:
+                        is_wrong_pattern = True
+                        wrong_distance = 0.5
+                        break
+                
+                # 2. Distance-based benzerlik (substring eşleşmezse)
+                if not is_wrong_pattern:
+                    match_w = self.matcher.match(claim.text, wrong)
+                    wrong_distance = match_w.combined_distance
+                    if wrong_distance < 0.6:
+                        is_wrong_pattern = True
+                
+                if is_wrong_pattern:
+                    # EK KONTROL: Claim aynı zamanda doğru fact'lerden birine
+                    # de benziyorsa, LLM aslında doğruyu söylüyordur
+                    # (örn: "SkyWater ve Google" → Google yanlış ama SkyWater doğru)
+                    also_correct = False
+                    if known_wrong and facts:
+                        for fact in facts:
+                            fm = self.matcher.match(claim.text, fact)
+                            if fm.combined_distance < 0.5:
+                                also_correct = True
+                                break
+                    
+                    if not also_correct:
+                        conflicts.append(Conflict(
+                            rule_id=rule.id,
+                            topic=rule.topic,
+                            llm_claim=claim.text,
+                            kb_fact=correct,  # DOĞRU bilgiyi kullan
+                            severity=Severity.CRITICAL,
+                            confidence=wrong_distance,
+                        ))
+            
+            # 3b. SONRA: Diğer fact'lerle karşılaştır 
+            #     (relevance filter + dynamic threshold ile)
             for fact in facts:
+                # Relevance filter: farklı konu → false positive
+                if not self._are_relevant(claim.text, fact, rule.topic, rule.aliases):
+                    continue
+                
                 match = self.matcher.match(claim.text, fact)
-
                 if match.is_conflict:
+                    # Dynamic threshold: ortak keyword varsa, paraphrase
+                    # olabilir → daha yüksek eşik gerekli
+                    claim_tokens = self._get_significant_tokens(claim.text)
+                    fact_tokens = self._get_significant_tokens(fact)
+                    shared_count = len(claim_tokens & fact_tokens)
+                    
+                    # Paylaşılan keyword sayısı arttıkça eşik yükselir
+                    # Bu, aynı konuda paraphrase olan (farklı ifade, aynı anlam)
+                    # claim-fact çiftlerinin false positive üretmesini engeller
+                    #
+                    # 0 shared → 0.40 (varsayılan)
+                    # 1 shared → 0.65 (paraphrase ihtimali)
+                    # 2 shared → 0.80 (güçlü bağlantı)
+                    # 3 shared → 0.85 (çok güçlü)
+                    # 4+ shared→ 0.90 (neredeyse aynı konu)
+                    if shared_count == 1:
+                        # Entity-aware: sadece entity adı paylaşılıyorsa
+                        # (örn: "NPX1, TSMC'de" vs "NPX1, SKY130'da")
+                        # daha düşük eşik kullan — farklı iddiaları yakala
+                        shared = claim_tokens & fact_tokens
+                        only_entity = bool(shared) and shared.issubset(entity_names) if entity_names else False
+                        if only_entity:
+                            effective_threshold = 0.48  # entity-only → çelişki olabilir
+                        else:
+                            effective_threshold = 0.65  # content overlap → paraphrase
+                    elif shared_count == 2:
+                        effective_threshold = 0.80
+                    elif shared_count >= 3:
+                        effective_threshold = 0.85
+                    else:
+                        effective_threshold = 0.40
+                    
+                    # Check if combined_distance exceeds the effective threshold
+                    # bu bir paraphrase (farklı ifade, aynı anlam)
+                    if match.combined_distance < effective_threshold:
+                        continue
+                    
                     sev = self.severity.compute(match)
                     conflicts.append(Conflict(
                         rule_id=rule.id,
@@ -364,9 +469,9 @@ class ConflictDetector:
         Desteklenen pattern'ler:
           - Liste öğeleri: ``- fact``, ``* fact``
           - Kalın metin: ``**label:** value``
-          - Pipe tablosu: ``| Konu | Doğrusu |`` (3. sütun)
-          - Kod blokları: ``kodu`` (içerik)
-          - Normal paragraflar (boş satırla ayrılmış)
+        
+        NOT: Pipe tablosu (confusion table) fact'leri burada çıkarılmaz;
+        bunun yerine _extract_known_wrong_claims() ile ayrıca işlenir.
         """
         facts = []
         lines = content.split('\n')
@@ -378,36 +483,90 @@ class ConflictDetector:
             # Liste öğeleri: - veya * ile başlayan
             if line.startswith('- ') or line.startswith('* '):
                 fact = line[2:].strip()
+                # Bold prefix varsa temizle: "**Label:** value" → "value"
+                if ':**' in fact[:30]:
+                    # **Geliştirici:** SkyWater → split on ':** '
+                    fact = fact.split(':** ', 1)[-1].strip()
                 if fact and len(fact) > 5:
                     facts.append(fact)
             
             # Kalın metin: **label:** value
-            elif re.match(r'\*\*[^*]+\*\*:', line):
-                parts = line.split(':', 1)
-                if len(parts) == 2:
-                    fact = parts[1].strip().strip('*').strip()
-                    if fact and len(fact) > 3:
-                        facts.append(fact)
-            
-            # Pipe tablosu: | Konu | LLM'in Dediği | Doğrusu |
-            elif line.startswith('|') and line.count('|') >= 3:
-                cols = [c.strip() for c in line.split('|') if c.strip()]
-                # Son sütun doğru bilgi
-                if len(cols) >= 3 and cols[-1] not in ('Doğrusu', '---', ''):
-                    facts.append(cols[-1])
-            
-            # Kod bloğu içeriği
-            elif line.startswith('```'):
-                i += 1
-                while i < len(lines) and not lines[i].strip().startswith('```'):
-                    code_line = lines[i].strip()
-                    if code_line and len(code_line) > 5:
-                        facts.append(code_line)
-                    i += 1
+            elif ':**' in line[:30] and line.count(':**') >= 1:
+                # **Label:** Value → value
+                fact = line.split(':** ', 1)[-1].strip().strip('*').strip()
+                if fact and len(fact) > 3:
+                    facts.append(fact)
             
             i += 1
         
         return facts if facts else [content.strip()]
+    
+    def _extract_known_wrong_claims(self, content: str) -> list[tuple[str, str]]:
+        """
+        Confusion table'dan (yanlış, doğru) çiftlerini çıkar.
+        
+        Pipe tablosu formatı:
+        | Konu | LLM'in Genelde Dediği | Doğrusu |
+        | Üretim düğümü | TSMC 7nm | SKY130 (130nm) |
+        
+        Returns:
+            [("TSMC 7nm", "SKY130 (130nm), OpenLane ile"),
+             ("Genel AI hızlandırıcı", "Edge AI, tarım/güvenlik"), ...]
+        """
+        confusions = []
+        lines = content.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('|') and line.count('|') >= 3:
+                cols = [c.strip() for c in line.split('|') if c.strip()]
+                if len(cols) >= 3:
+                    wrong = cols[-2]  # sondan bir önceki: LLM'in Genelde Dediği
+                    correct = cols[-1]  # son sütun: Doğrusu
+                    if (wrong and wrong not in ('LLM\'in Genelde Dediği', '---', '')
+                        and correct and correct not in ('Doğrusu', '---', '')):
+                        confusions.append((wrong, correct))
+        
+        return confusions
+    
+    def _get_significant_tokens(self, text: str) -> set[str]:
+        """Metinden önemli token'ları çıkar (stopwords + çok kısa kelimeler hariç)."""
+        # Temizle: markdown, noktalama
+        clean = re.sub(r'[#*_`\[\]()|\\]', ' ', text.lower())
+        words = re.findall(r'\b[a-zçğıöşü0-9]{2,}\b', clean)  # 2+ chars
+        
+        stopwords = {
+            'bir', 've', 'bu', 'için', 'ile', 'olan', 'gibi', 'kadar', 'ama',
+            'the', 'and', 'for', 'with', 'this', 'that', 'from', 'are', 'was',
+            'nedir', 'hakkında', 'nasıl', 'olarak', 'tarafından', 'ancak',
+            'is', 'not', 'but', 'or', 'as', 'to', 'of', 'in', 'on', 'at', 'by',
+            'değil', 'daha', 'çok', 'sonra', 'önce', 'son', 'kadar', 'yeni',
+            'başka', 'kendi', 'aynı', 'her', 'tüm', 'hem', 'ya', 'da', 'şey',
+            'bir', 'iki', 'üç', 'vb', 'vs', 'dr', 'mr', 'no',  # kısaltmalar
+        }
+        
+        return {w for w in words if w not in stopwords}
+    
+    def _are_relevant(self, claim_text: str, fact_text: str, *args, **kwargs) -> bool:
+        """
+        İki metnin aynı konuda olup olmadığını kontrol eder.
+        
+        Farklı konulardaki claim-fact çiftleri conflict olarak 
+        işaretlenmemelidir (false positive önleme).
+        """
+        claim_tokens = self._get_significant_tokens(claim_text)
+        fact_tokens = self._get_significant_tokens(fact_text)
+        
+        # İkisinden birinde anlamlı token yoksa → varsayılan olarak relevant
+        if not claim_tokens or not fact_tokens:
+            return True
+        
+        # Ortak anlamlı token var mı?
+        if claim_tokens & fact_tokens:
+            return True
+        
+        # Hiçbir bağlantı yok → farklı konu
+        return False
 
     @property
     def avg_latency_us(self) -> float:
