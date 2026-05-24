@@ -17,6 +17,8 @@ from enum import Enum, auto
 from typing import Optional, TYPE_CHECKING
 
 from anchor import Conflict, Severity
+from anchor.config import DOMAIN_SYNONYMS
+from anchor.parser.extractor import extract_facts, extract_known_wrong_claims
 
 import numpy as np
 
@@ -58,20 +60,7 @@ class ClaimExtractor:
     """
     
     # Domain-specific synonym map (alias → common variations)
-    DOMAIN_SYNONYMS: list[tuple[str, list[str]]] = [
-        ("pipeline", ["ci/cd", "ci", "cd", "build pipeline"]),
-        ("retrospective", ["retro", "retros", "retrospective"]),
-        ("retrospectives", ["retro", "retros", "postmortem", "post-mortem"]),
-        ("architecture", ["arch", "design", "system design", "architectural"]),
-        ("release", ["deploy", "go-live", "ship", "release process"]),
-        ("refinement", ["grooming", "backlog grooming", "backlog refinement"]),
-        ("backend", ["server", "service layer", "business logic"]),
-        ("frontend", ["ui", "client", "presentation"]),
-        ("singleton", ["singleton pattern"]),
-        ("tdd", ["test-driven", "test driven", "tdd cycle"]),
-        ("code review", ["pr review", "peer review", "code review process"]),
-        ("branching", ["git branch", "branch strategy", "branching model"]),
-    ]
+    # (config.py'den gelir — DOMAIN_SYNONYMS)
     
     def __init__(self):
         self._total_calls = 0
@@ -157,7 +146,7 @@ class ClaimExtractor:
                 all_terms.append(w)
 
         # 3. Synonym expansion from domain map
-        for alias, synonyms in self.DOMAIN_SYNONYMS:
+        for alias, synonyms in DOMAIN_SYNONYMS:
             if any(alias in t for t in all_terms):
                 for syn in synonyms:
                     if syn not in all_terms:
@@ -577,7 +566,11 @@ class ConflictDetector:
         """
         t0 = time.perf_counter()
         self._total_calls += 1
-
+        
+        # v4.3: State isolation — her detect çağrısında _rules listesini temizle
+        # (legacy API'den biriken state'in yeni çağrıları etkilemesini önler)
+        self.extractor._rules.clear()
+        
         conflicts = []
 
         # 1. Claim extraction (additional_terms ile genişlet)
@@ -602,8 +595,8 @@ class ConflictDetector:
             return conflicts
 
         # 2. Rule'dan fact'leri ve bilinen yanlış claim'leri parse et
-        facts = self._extract_facts(rule.content)
-        known_wrong = self._extract_known_wrong_claims(rule.content)
+        facts = extract_facts(rule.content)
+        known_wrong = extract_known_wrong_claims(rule.content)
         
         # 2b. Enriched facts varsa ekle (build-time paraphrase'lar)
         enriched = getattr(rule, "enriched_facts", None) or []
@@ -632,7 +625,7 @@ class ConflictDetector:
                     if ef.lower() not in original_set:
                         facts.append(ef)
                         original_set.add(ef.lower())
-                known_wrong = self._extract_known_wrong_claims(rule.content)
+                known_wrong = extract_known_wrong_claims(rule.content)
 
         # 3. Her claim'i kontrol et
         for claim in claims:

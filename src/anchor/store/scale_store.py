@@ -191,9 +191,8 @@ class ScalableRuleStore:
                 # Runtime'da encode_batch() çağrısına gerek kalmaz
                 if self._use_embedding:
                     text = fpath.read_text(encoding="utf-8")
-                    from anchor.detect import ConflictDetector
-                    det = ConflictDetector()
-                    facts = det._extract_facts(text)
+                    from anchor.parser.extractor import extract_facts
+                    facts = extract_facts(text)
                     if facts:
                         try:
                             from anchor.judge.embedding import load_model, encode_batch
@@ -263,10 +262,8 @@ class ScalableRuleStore:
         
         %0 false positive garantisi: exact substring matching kullanılır.
         """
-        from anchor.detect import ConflictDetector
-        det = ConflictDetector()
+        from anchor.parser.extractor import extract_facts
         
-        # Stopwords (dil-agnostik — hem Türkçe hem İngilizce)
         STOPWORDS = {
             'bir', 've', 'bu', 'ile', 'olan', 'gibi', 'kadar', 'ama', 'sonra',
             'önce', 'için', 'olarak', 'tarafından', 'ancak', 'daha', 'çok',
@@ -414,6 +411,8 @@ class ScalableRuleStore:
             'prototype', 'constructor', 'typeof', 'instanceof',
             'void', 'null', 'undefined', 'nan', 'infinity',
             'console', 'require', 'module', 'exports',
+            # Additional FP fixes
+            'sentence', 'paragraph', 'meaning', 'random',
         }
         
         # Pass 1: Tüm rule'lardan kelimeleri çıkar, document frequency hesapla
@@ -426,7 +425,7 @@ class ScalableRuleStore:
                 continue
             
             text = Path(fpath).read_text(encoding="utf-8")
-            facts = det._extract_facts(text)
+            facts = extract_facts(text)
             
             words = set()
             for fact in facts:
@@ -591,8 +590,14 @@ class ScalableRuleStore:
                 try:
                     from anchor import Rule
                     rule = Rule.from_file(fpath)
-                    # Meta'dan enriched facts ve pre-computed embeddings'leri ekle
+                    # v4.3: Alias consolidation — store metadata'deki alias'lar
+                    # authoritative kaynaktır. Parser'dan gelen alias'lar
+                    # override edilir (parser regex'i gürültülü olabilir)
                     meta = self._rule_meta.get(rule_id, {})
+                    meta_aliases = meta.get("aliases", [])
+                    if meta_aliases:
+                        rule.aliases = meta_aliases
+                    # Meta'dan enriched facts ve pre-computed embeddings'leri ekle
                     enriched = meta.get("enriched_facts", [])
                     if enriched:
                         rule.enriched_facts = enriched

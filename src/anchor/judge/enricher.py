@@ -108,9 +108,8 @@ class RuleEnricher:
         Returns:
             enriched_facts: Tüm fact'ler (orijinal + paraphrase'lar)
         """
-        from anchor.detect import ConflictDetector
-        det = ConflictDetector()
-        facts = det._extract_facts(rule_content)
+        from anchor.parser.extractor import extract_facts
+        facts = extract_facts(rule_content)
         return self.enrich_facts(facts)
 
     def _generate_paraphrases(self, fact: str) -> list[str]:

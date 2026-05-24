@@ -27,10 +27,11 @@ from anchor import Rule
 from anchor.organize.domain_shard import ShardRouter
 from anchor.organize.bloom_index import BloomIndex
 from anchor.organize.semantic_index import SemanticIndex
+from anchor.config import BINARY_FORMAT_VERSION
 
 
 # Versiyon: format değişikliklerinde artır
-FORMAT_VERSION = 4  # v4: distinctive_keyword_index (TF-IDF keyword matching)
+FORMAT_VERSION = BINARY_FORMAT_VERSION  # v4: distinctive_keyword_index (from config.py)
 
 logger = logging.getLogger(__name__)
 

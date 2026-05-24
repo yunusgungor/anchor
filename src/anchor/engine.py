@@ -19,9 +19,10 @@ if TYPE_CHECKING:
     from anchor.judge.enricher import RuleEnricher
 
 from anchor import (
-    Conflict, Correction, RectificationResult,
-    Rule, Severity, Topic
+    Rule, Topic, Conflict, Severity, Correction,
+    RectificationResult, StepViolation,
 )
+from anchor.config import KEYWORD_MIN_LENGTH
 from anchor.store.scale_store import ScalableRuleStore
 from anchor.detect import (
     ClaimExtractor, ConflictDetector
@@ -182,7 +183,7 @@ class AnchorEngine:
                     # Kısa/generic keyword'ler false positive üretir
                     # Anlamlı: >=6 karakter veya özel karakter içeriyor
                     is_meaningful = (
-                        len(keyword) >= 6 or
+                        len(keyword) >= KEYWORD_MIN_LENGTH or
                         '/' in keyword or '-' in keyword
                     )
                     if not is_meaningful:
