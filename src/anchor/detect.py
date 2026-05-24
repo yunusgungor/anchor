@@ -8,14 +8,20 @@ Bileşenler:
   ConflictDetector: Üst seviye detector (tüm bileşenleri koordine eder)
 """
 
+import logging
 import re
 import time
 from difflib import SequenceMatcher
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from anchor import Conflict, Severity
+
+if TYPE_CHECKING:
+    from anchor.judge.llm_judge import JudgeConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -368,14 +374,23 @@ class ConflictDetector:
     """
 
     def __init__(self, extractor: Optional["ClaimExtractor"] = None,
-                 use_embedding: bool = False):
+                 use_embedding: bool = False,
+                 judge_config: Optional["JudgeConfig"] = None):
         self.extractor = extractor or ClaimExtractor()
         self.matcher = FactMatcher(use_embedding=use_embedding)
-        self._jaccard_matcher = FactMatcher(use_embedding=False)  # also_correct için
+        self._jaccard_matcher = FactMatcher(use_embedding=False)
         self.severity = SeverityEngine()
         self.use_embedding = use_embedding
         self._total_calls = 0
         self._total_latency_us = 0
+        
+        # LLM-as-Judge
+        self._judge = None
+        if judge_config and judge_config.use_llm:
+            from anchor.judge.llm_judge import LLMJudge
+            self._judge = LLMJudge(judge_config)
+            logger.info("LLM-as-Judge enabled: %s/%s",
+                        judge_config.llm_provider, judge_config.llm_model)
 
     def detect(self, llm_output: str, rule, topics: list) -> list[Conflict]:
         """
@@ -513,6 +528,23 @@ class ConflictDetector:
                     # bu bir paraphrase (farklı ifade, aynı anlam)
                     if match.combined_distance < effective_threshold:
                         continue
+                    
+                    # LLM-as-Judge: borderline case'lerde son karar
+                    if self._judge is not None and match.embedding_distance >= 0:
+                        d_emb = match.embedding_distance
+                        if d_emb < 0.5:
+                            # Embedding benzer dedi → paraphrase
+                            continue
+                        elif d_emb > 0.7:
+                            # Embedding çok farklı dedi → conflict zaten
+                            pass
+                        else:
+                            # Borderline (0.5 <= d_emb <= 0.7): LLM'e danış
+                            verdict = self._judge.judge(claim.text, fact,
+                                                         embedding_distance=d_emb)
+                            if not verdict.is_conflict:
+                                # LLM çelişki yok dedi → atla
+                                continue
                     
                     sev = self.severity.compute(match)
                     conflicts.append(Conflict(

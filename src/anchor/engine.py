@@ -12,7 +12,10 @@ Pipeline:
 
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from anchor.judge.llm_judge import JudgeConfig
 
 from anchor import (
     Conflict, Correction, RectificationResult,
@@ -44,13 +47,16 @@ class AnchorEngine:
     """
     
     def __init__(self, rules_path: str, index_path: Optional[str] = None,
-                 use_embedding: bool = False):
+                 use_embedding: bool = False,
+                 judge_config: Optional["JudgeConfig"] = None):
         self.store = ScalableRuleStore(rules_path, index_path)
         self.extractor = ClaimExtractor()
         self.detector = ConflictDetector(extractor=self.extractor,
-                                          use_embedding=use_embedding)
+                                          use_embedding=use_embedding,
+                                          judge_config=judge_config)
         self.patcher = PatchEngine()
         self.use_embedding = use_embedding
+        self._judge_config = judge_config
         
         # İstatistik
         self._total_processed = 0
