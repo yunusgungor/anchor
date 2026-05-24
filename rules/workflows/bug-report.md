@@ -1,6 +1,6 @@
 ---
 topic: "Bug Report Workflow"
-aliases: ["bug-report", "hata-raporu", "bug report", "hata raporu", "bug"]
+aliases: ["bug-report", "hata-raporu", "bug report", "hata raporu", "bug", "hata"]
 tags: [workflow, process, quality]
 priority: 10
 strictness: 0.9

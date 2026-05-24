@@ -102,25 +102,41 @@ class AnchorEngine:
         timings['topic_extraction'] = (t1 - t0) * 1_000_000
         
         # Claim listesini Topic listesine dönüştür (backward compat)
-        from anchor import Topic
-        topics = []
-        topic_names = set()
+        topics: list[Topic] = []
+        topic_names: set[str] = set()
         for claim in raw_topics:
             for kw in claim.keywords_found:
                 if kw not in topic_names:
                     topic_names.add(kw)
                     topics.append(Topic(name=kw, confidence=claim.confidence))
         
-        # Eğer hiç topic bulunamazsa, query'den topic dene
-        if not topics:
-            for rule_id, meta in self.store._rule_meta.items():
-                if meta["topic"].lower() in user_query.lower():
-                    topics.append(Topic(name=meta["topic"], confidence=0.8))
-                    break
+        # v4.0: MULTI-TOPIC — ClaimExtractor'ın bulduğuna EK olarak
+        # query'deki tüm eşleşen topic/alias'ları da ekle
+        # (böylece "bug report: NPX1" → hem WF hem FACTUAL tetiklenir)
+        query_lower = user_query.lower().strip()
+        # Skip for empty or very short queries ("" in "any" is always True)
+        if len(query_lower) >= 3:
+            for rid, meta in self.store._rule_meta.items():
+                matched = False
+                # Topic kontrol: query topic içeriyor mu?
+                if meta["topic"].lower() in query_lower:
+                    tn = meta["topic"]
+                    if tn not in topic_names:
+                        topic_names.add(tn)
+                        topics.append(Topic(name=tn, confidence=0.85))
+                        matched = True
+                # Alias kontrol: query alias içeriyor mu? veya alias query'i?
                 for alias in meta.get("aliases", []):
-                    if alias.lower() in user_query.lower():
-                        topics.append(Topic(name=meta["topic"], confidence=0.7))
-                        break
+                    alias_lower = alias.lower()
+                    if (alias_lower in query_lower or 
+                        (len(alias_lower) >= 4 and query_lower in alias_lower)):
+                        tn = meta["topic"]
+                        if tn not in topic_names:
+                            topic_names.add(tn)
+                            topics.append(Topic(name=tn, 
+                                confidence=0.75 if alias_lower in query_lower else 0.65))
+                            matched = True
+                            break
         
         topic_names = [t.name for t in topics]
         

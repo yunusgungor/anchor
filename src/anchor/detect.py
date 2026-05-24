@@ -580,9 +580,15 @@ class ConflictDetector:
                 wrong_alternatives = [w.strip() for w in wrong.split("/") if w.strip()]
                 for alt in wrong_alternatives:
                     alt_lower = alt.lower().strip()
+                    # Exact match
                     if alt_lower in claim_lower and len(alt_lower) >= 3:
                         is_wrong_pattern = True
                         wrong_distance = 0.5
+                        break
+                    # Turkish suffix-tolerant match: "network katmanı" ≈ "network katmanında"
+                    if len(alt_lower) >= 5 and alt_lower.rstrip("ıiueöoa") in claim_lower:
+                        is_wrong_pattern = True
+                        wrong_distance = 0.55
                         break
                 
                 # 2. Distance-based benzerlik (substring eşleşmezse)
@@ -812,8 +818,11 @@ class ConflictDetector:
                 if len(cols) >= 3:
                     wrong = cols[-2]  # sondan bir önceki: LLM'in Genelde Dediği
                     correct = cols[-1]  # son sütun: Doğrusu
+                    # Skip: table separators (only ---, ===, etc.), headers, empty
+                    is_separator = not any(c.isalpha() for c in wrong) and not any(c.isalpha() for c in correct)
                     if (wrong and wrong not in ('LLM\'in Genelde Dediği', '---', '')
-                        and correct and correct not in ('Doğrusu', '---', '')):
+                        and correct and correct not in ('Doğrusu', '---', '')
+                        and not is_separator):
                         confusions.append((wrong, correct))
         
         return confusions
