@@ -202,23 +202,34 @@ def extract_topic(text: str, fallback: str = "") -> Optional[str]:
     """
     Sadece topic alanını çıkar — tam parse gerektirmez, hızlıdır.
     
+    Öncelik sırası:
+      1. YAML frontmatter'daki ``topic:`` alanı
+      2. İlk H1 başlık (``# Topic``)
+      3. fallback değeri
+    
     Returns:
         Topic değeri veya None
     """
-    if not text.startswith("---"):
-        return None
+    # 1. YAML frontmatter
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].strip().split("\n"):
+                line = line.strip()
+                if line.startswith("topic:"):
+                    val = line.split(":", 1)[1].strip().strip("\"'")
+                    if val:
+                        return val
     
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return None
+    # 2. H1 başlık: # Clean Architecture Principles
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("# ") and not stripped.startswith("## "):
+            topic = stripped[2:].strip()
+            if topic:
+                return topic
     
-    for line in parts[1].strip().split("\n"):
-        line = line.strip()
-        if line.startswith("topic:"):
-            val = line.split(":", 1)[1].strip().strip("\"'")
-            return val if val else None
-    
-    return None
+    return None if fallback == "" else fallback
 
 
 def extract_metadata(text: str, rule_id: str = "") -> dict[str, Any]:

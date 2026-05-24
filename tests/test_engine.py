@@ -30,10 +30,11 @@ class TestAnchorEngine:
 
     def test_critical_conflict_override(self, engine):
         result = engine.process(
-            user_query="function-design hakkında",
-            llm_output="function-design: It is acceptable to have 500-line functions with mixed abstraction levels."
+            user_query="Clean Architecture",
+            llm_output="Clean architecture: controllers directly access the database. No dependency rule needed."
         )
         assert result.modified
+        assert "database" in result.corrected or "layer" in result.corrected
         assert len(result.corrections) >= 1
 
     def test_latency_budget(self, engine):

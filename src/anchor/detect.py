@@ -123,6 +123,12 @@ class ClaimExtractor:
         all_terms = [topic.lower()] + [a.lower() for a in aliases]
         all_terms.sort(key=len, reverse=True)
 
+        # Auto-generate word-based terms: topic + individual significant words
+        topic_words = [w for w in topic.lower().split() if len(w) >= 4]
+        for w in topic_words:
+            if w not in all_terms:
+                all_terms.append(w)
+        
         sentences = self._segment_sentences(llm_output)
         claims = []
 
@@ -721,66 +727,150 @@ class ConflictDetector:
             return [], []
 
     def _extract_facts(self, content: str) -> list[str]:
-        """Rule içeriğinden fact'leri çıkar.
+        """Rule içeriğinden fact'leri çıkar — format-agnostik.
         
-        Desteklenen pattern'ler:
-          - Liste öğeleri: ``- fact``, ``* fact``
-          - Kalın metin: ``**label:** value``
-        
-        NOT: Pipe tablosu (confusion table) fact'leri burada çıkarılmaz;
-        bunun yerine _extract_known_wrong_claims() ile ayrıca işlenir.
+        Desteklenen pattern'ler (Anchor native):
+          1. Liste öğeleri: ``- fact``, ``* fact``
+          2. Kalın metin: ``**label:** value`` (inline veya ayrı satır)
+          3. Alt başlıklar: ``### N. Title`` → label + takip eden içerik
+          4. Kalın blok: ``**Bold Block**`` başlık + takip eden içerik
+          5. Section bazlı: ``## Bölüm`` altındaki liste öğeleri
         """
         facts = []
         lines = content.split('\n')
+        in_code_block = False
+        in_frontmatter = False
+        skip_until_section = False
+        
+        # Section tracker for H2 grouping
+        current_section = ""
         
         i = 0
         while i < len(lines):
             line = lines[i].strip()
+            raw = lines[i]
             
-            # === SKIP: YAML frontmatter ===
-            if line == '---':
-                # Tüm frontmatter'ı atla (sonraki ---'e kadar)
-                i += 1
-                while i < len(lines) and lines[i].strip() != '---':
-                    i += 1
-                # closing ---'ü de atla
+            # === CODE BLOCK TOGGLE ===
+            if line.startswith('```'):
+                in_code_block = not in_code_block
                 i += 1
                 continue
-            
-            # === SKIP: Pipe table header/separator ===
-            if line.startswith('|') and ('---' in line or not any(c.isalpha() for c in line)):
+            if in_code_block:
                 i += 1
                 continue
             
-            # === SKIP: Non-fact lines ===
-            if len(line) < 8:  # çok kısa satırlar (separator, ---, vs.)
+            # === YAML FRONTMATTER SKIP ===
+            if line == '---' and i == 0:
+                in_frontmatter = True
                 i += 1
                 continue
-            if line.startswith('#'):  # markdown heading
-                i += 1
-                continue
-            if line.startswith('```'):  # code block
-                i += 1
-                while i < len(lines) and not lines[i].strip().startswith('```'):
-                    i += 1
+            if in_frontmatter:
+                if line == '---':
+                    in_frontmatter = False
                 i += 1
                 continue
             
-            # Liste öğeleri: - veya * ile başlayan
+            # === TRACK H2 SECTION (for context/grouping) ===
+            if line.startswith('## ') and not line.startswith('### '):
+                current_section = line[3:].strip()
+                i += 1
+                continue
+            
+            # === H3 HEADING: "### N. Title"  → extract label + content ===
+            if line.startswith('### '):
+                heading_text = line[4:].strip()
+                # Remove leading number: "1. Dependency Rule" → "Dependency Rule"
+                heading_label = re.sub(r'^\d+[\.\)]\s*', '', heading_text)
+                # Bold cleanup
+                heading_label = heading_label.strip('*').strip()
+                
+                # Collect following content until next heading or empty line gap
+                content_lines = []
+                j = i + 1
+                while j < len(lines):
+                    next_line = lines[j].strip()
+                    if next_line.startswith('###') or next_line.startswith('## '):
+                        break
+                    if next_line.startswith('---'):
+                        j += 1
+                        break
+                    if next_line.startswith('```'):
+                        j += 1
+                        break
+                    if next_line:
+                        content_lines.append(next_line)
+                    else:
+                        # Single empty line is okay, double means section break
+                        if j + 1 < len(lines) and not lines[j+1].strip():
+                            break
+                    j += 1
+                
+                if heading_label and content_lines:
+                    # Join: label + content as single fact
+                    combined = f"{heading_label}: {' '.join(content_lines)}"
+                    if len(combined) > 10:
+                        facts.append(combined)
+                        i = j
+                        continue
+            
+            # === BOLD BLOCK: "**Bold Title**" at line start ===
+            if line.startswith('**') and '**' in line[2:] and not line.startswith('***'):
+                # Check if it's a bold title followed by text on same or next lines
+                bold_match = re.match(r'\*\*(.+?)\*\*', line)
+                if bold_match:
+                    bold_text = bold_match.group(1).strip()
+                    # Skip if it's a "**Label:** value" pattern (handled below)
+                    if bold_text.endswith(':'):
+                        i += 1
+                        continue
+                    
+                    # Collect following content
+                    content_lines = []
+                    # Text on same line after bold
+                    after_bold = line[bold_match.end():].strip()
+                    if after_bold:
+                        content_lines.append(after_bold)
+                    # Next lines until heading/empty
+                    j = i + 1
+                    while j < len(lines):
+                        nl = lines[j].strip()
+                        if nl.startswith('###') or nl.startswith('## '):
+                            break
+                        if nl.startswith('---') or nl.startswith('```'):
+                            break
+                        if nl:
+                            content_lines.append(nl)
+                        else:
+                            break
+                        j += 1
+                    
+                    if bold_text and content_lines:
+                        combined = f"{bold_text}: {' '.join(content_lines)}"
+                        if len(combined) > 10:
+                            facts.append(combined)
+                            i = j if j > i + 1 else i + 1
+                            continue
+            
+            # === LIST ITEM: "- " veya "* " ===
             if line.startswith('- ') or line.startswith('* '):
                 fact = line[2:].strip()
-                # Bold prefix varsa temizle: "**Label:** value" → "value"
+                # Bold prefix: "**Label:** value" → use as-is
                 if ':**' in fact[:30]:
-                    # **Geliştirici:** SkyWater → split on ':** '
-                    fact = fact.split(':** ', 1)[-1].strip()
+                    # Keep the bold label as context: "**Dependency Rule:** value"
+                    pass
+                # Inline bold in fact: "- Must point **inward**" → use full text
                 if fact and len(fact) > 5:
-                    facts.append(fact)
+                    # Add section prefix for context if available
+                    if current_section and current_section not in fact[:50]:
+                        facts.append(fact)
+                    else:
+                        facts.append(fact)
             
-            # Kalın metin: **label:** value
-            elif ':**' in line[:30] and line.count(':**') >= 1:
-                # **Label:** Value → value
-                fact = line.split(':** ', 1)[-1].strip().strip('*').strip()
-                if fact and len(fact) > 3:
+            # === BOLD LABEL: "**Label:** value" (standalone line) ===
+            elif ':**' in line[:40] and line.count('**') >= 2:
+                # **Label:** Value → keep both
+                fact = line.strip()
+                if len(fact) > 5:
                     facts.append(fact)
             
             i += 1
@@ -790,9 +880,18 @@ class ConflictDetector:
         unique_facts = []
         for f in facts:
             fl = f.lower().strip()
-            if fl not in seen:
-                seen.add(fl)
-                unique_facts.append(f)
+            # Remove very short or very similar duplicates
+            if fl not in seen and len(f) > 10:
+                # Check 70% similarity threshold for near-duplicates
+                is_dup = False
+                for existing in seen:
+                    sm = SequenceMatcher(None, fl, existing)
+                    if sm.ratio() > 0.85:
+                        is_dup = True
+                        break
+                if not is_dup:
+                    seen.add(fl)
+                    unique_facts.append(f)
         
         return unique_facts if unique_facts else [content.strip()]
     

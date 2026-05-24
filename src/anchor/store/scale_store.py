@@ -120,6 +120,24 @@ class ScalableRuleStore:
                 
                 # Metadata
                 aliases, tags, priority, strictness = self._extract_meta_from_file(fpath)
+                
+                # Auto-derive word-based aliases from topic name
+                # (e.g. "Branching & Commit Rules" → ["branching", "commit"])
+                import re as _re
+                if not aliases and topic:
+                    topic_words = set(_re.findall(r'\b[a-zA-Zçğıöşüü]{4,}\b', topic.lower()))
+                    excluded = {'rules', 'principles', 'standards', 'guide', 'cycle',
+                                'process', 'practices', 'about', 'and', 'the', 'for',
+                                'with', 'code', 'testing', 'management', 'production',
+                                'architecture', 'naming', 'function'}
+                    word_aliases = [w for w in topic_words if w not in excluded]
+                    # Also add the original topic as a fallback alias
+                    topic_as_alias = topic.lower().strip()
+                    if topic_as_alias and len(topic_as_alias) >= 5:
+                        word_aliases.append(topic_as_alias)
+                    if word_aliases:
+                        aliases = word_aliases[:5]  # Keep top 5
+                
                 meta = {
                     "id": rule_id,
                     "topic": topic,
