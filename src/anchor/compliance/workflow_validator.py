@@ -333,6 +333,7 @@ class WorkflowIntegrator:
         self,
         llm_output: str,
         rule,
+        diagram_flows: list[list[str]] | None = None,
     ) -> tuple[list[Conflict], list[StepViolation]]:
         """
         Run full workflow validation and return both conflicts and step violations.
@@ -340,11 +341,33 @@ class WorkflowIntegrator:
         Args:
             llm_output: The raw LLM output text.
             rule: Rule object with .steps attribute (list[Step]).
+            diagram_flows: v4.4 — optional diagram flows to convert to Steps.
 
         Returns:
             (conflicts, step_violations) tuple.
         """
         defined_steps: list[Step] = getattr(rule, 'steps', []) or []
+        
+        # v4.4: Diagram flows → synthetic Step'ler
+        # Eğer rule'da hiç step yoksa ama diagram_flows varsa,
+        # flowchart node'larından Step objeleri oluştur
+        if not defined_steps and diagram_flows:
+            synthetic_steps = []
+            step_id_counter = 0
+            for flow in diagram_flows:
+                for node in flow:
+                    step_id_counter += 1
+                    synthetic_steps.append(Step(
+                        id=f"diagram-step-{step_id_counter}",
+                        title=node,
+                        description=f"Flow step: {node}",
+                        order=step_id_counter,
+                        mandatory=True,
+                    ))
+            if synthetic_steps:
+                defined_steps = synthetic_steps
+                logger.debug("Created %d synthetic steps from diagram flows", len(synthetic_steps))
+        
         if not defined_steps:
             return [], []
 

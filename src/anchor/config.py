@@ -240,6 +240,22 @@ DOMAIN_SYNONYMS: Final[list[tuple[str, list[str]]]] = [
 ]
 
 # ============================================================
+# DIAGRAM CONSTANTS
+# ============================================================
+
+# Diagram extraction
+DIAGRAM_MIN_NODES: Final[int] = 2       # En az 2 node'lu diyagram anlamlı
+DIAGRAM_MIN_EDGES: Final[int] = 1       # En az 1 edge
+DIAGRAM_MAX_FLOW_DEPTH: Final[int] = 10 # Flow traversal max derinlik
+DIAGRAM_TERM_MIN_LENGTH: Final[int] = 3 # Node label'ından term min length
+
+# Diagram-based flow matching
+FLOW_VIOLATION_SEVERITY: Final[str] = "WARNING"  # Flow ihlali severity
+
+# Diagram to fact çevirimi
+DIAGRAM_FACT_PREFIX: Final[str] = "[D] "  # Diagram fact'lerini işaretle
+
+# ============================================================
 # AUTO-ALIAS EXCLUDED WORDS
 # ============================================================
 AUTO_ALIAS_EXCLUDED: Final[set] = {

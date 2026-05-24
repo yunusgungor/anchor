@@ -21,6 +21,7 @@ from difflib import SequenceMatcher
 from typing import Optional
 
 from anchor.config import FACT_MIN_LENGTH, FACT_NEAR_DUPE_THRESHOLD
+from anchor.parser.diagram import extract_diagram_blocks, diagram_to_facts
 
 
 def extract_facts(content: str) -> list[str]:
@@ -42,8 +43,24 @@ def extract_facts(content: str) -> list[str]:
     while i < len(lines):
         line = lines[i].strip()
         
-        # Code block toggle
+        # Code block / diagram fence toggle
         if line.startswith('```'):
+            # Mermaid code block → diagram fact'leri çıkar
+            if line.strip().lower() == '```mermaid':
+                # Mermaid block içeriğini topla
+                j = i + 1
+                mermaid_lines = []
+                while j < len(lines) and not lines[j].strip().startswith('```'):
+                    mermaid_lines.append(lines[j])
+                    j += 1
+                if mermaid_lines:
+                    mermaid_code = '\n'.join(mermaid_lines)
+                    diagrams = extract_diagram_blocks(f"```mermaid\n{mermaid_code}\n```")
+                    for d in diagrams:
+                        facts.extend(diagram_to_facts(d))
+                i = j + 1  # Skip closing ```
+                continue
+            
             in_code_block = not in_code_block
             i += 1
             continue
@@ -116,6 +133,32 @@ def extract_facts(content: str) -> list[str]:
             fact = line.strip()
             if len(fact) > 5:
                 facts.append(fact)
+        
+        # ASCII diagram pattern: "+--+" box border
+        elif line.startswith('+-') or line.startswith('+='):
+            # Collect ASCII diagram content
+            j = i
+            ascii_lines = []
+            while j < len(lines):
+                nl = lines[j]
+                stripped_nl = nl.strip()
+                if (stripped_nl.startswith('+-') or stripped_nl.startswith('+=') or
+                    stripped_nl.startswith('|') or
+                    '-->' in stripped_nl or '<--' in stripped_nl):
+                    ascii_lines.append(nl)
+                    j += 1
+                elif len(ascii_lines) >= 3 and not stripped_nl:
+                    # Empty line after diagram
+                    break
+                else:
+                    break
+            if len(ascii_lines) >= 3:
+                ascii_code = '\n'.join(ascii_lines)
+                diagrams = extract_diagram_blocks(ascii_code)
+                for d in diagrams:
+                    facts.extend(diagram_to_facts(d))
+                i = j
+                continue
         
         i += 1
     

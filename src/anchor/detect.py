@@ -17,7 +17,7 @@ from enum import Enum, auto
 from typing import Optional, TYPE_CHECKING
 
 from anchor import Conflict, Severity
-from anchor.config import DOMAIN_SYNONYMS
+from anchor.config import DOMAIN_SYNONYMS, FLOW_VIOLATION_SEVERITY
 from anchor.parser.extractor import extract_facts, extract_known_wrong_claims
 
 import numpy as np
@@ -505,6 +505,99 @@ class SeverityEngine:
         return match.combined_distance
 
 
+class FlowConflictMatcher:
+    """
+    v4.4: Mermaid/ASCII diagram akışına aykırı LLM output'larını yakalar.
+    
+    Deterministik çalışır (regex-based node/edge matching):
+      1. LLM output'ta diyagram node label'larını tara
+      2. Eksik node varsa (akışta olması gerekene rağmen) → violation
+      3. Yanlış sıra varsa (A→C ama B atlanmış) → violation
+      4. Geçersiz bağımlılık varsa (diyagramda edge yok) → violation
+    """
+    
+    def __init__(self):
+        self._total_calls = 0
+    
+    def match(self, output: str, rule_id: str, topic: str,
+              diagram_flows: list[list[str]]) -> list[Conflict]:
+        """
+        LLM output'undaki flow ihlallerini tespit et.
+        
+        Args:
+            output: LLM çıktısı
+            rule_id: Rule ID'si (Conflict oluşturmak için)
+            topic: Topic (Conflict oluşturmak için)
+            diagram_flows: Diagram'dan çıkarılmış flow listesi [[A,B,C], ...]
+            
+        Returns:
+            Flow ihlali Conflict'leri
+        """
+        t0 = time.perf_counter()
+        self._total_calls += 1
+        
+        conflicts = []
+        output_lower = output.lower()
+        
+        if not diagram_flows:
+            return conflicts
+        
+        for flow in diagram_flows:
+            if len(flow) < 2:
+                continue
+            
+            # Output'ta flow'daki hangi node'lar geçiyor?
+            mentioned = []
+            for node in flow:
+                if node.lower() in output_lower:
+                    mentioned.append(node)
+            
+            # Eğer output'ta 2+ node birden geçiyorsa, flow kontrol et
+            if len(mentioned) >= 2:
+                # Flow'daki sırayı kontrol et
+                positions_in_flow = [flow.index(m) for m in mentioned]
+                
+                # Atlanan node var mı? (mentioned arasında flow'da olması gerekene bak)
+                min_pos = min(positions_in_flow)
+                max_pos = max(positions_in_flow)
+                expected_nodes = flow[min_pos:max_pos + 1]
+                missing = [n for n in expected_nodes if n not in mentioned]
+                
+                if missing:
+                    conflicts.append(Conflict(
+                        rule_id=rule_id,
+                        topic=topic,
+                        severity=Severity[FLOW_VIOLATION_SEVERITY.upper()] 
+                            if FLOW_VIOLATION_SEVERITY.upper() in Severity.__members__ 
+                            else Severity.WARNING,
+                        llm_claim=(f"Mentions {{{', '.join(mentioned)}}} but "
+                                   f"skips {{{', '.join(missing)}}}"),
+                        kb_fact=(f"Flow diagram requires: {' → '.join(flow)}"),
+                        step_violation=f"Missing nodes in flow: {', '.join(missing)}",
+                    ))
+                    continue
+                
+                # Sıra ihlali var mı?
+                for i in range(len(mentioned) - 1):
+                    curr = mentioned[i]
+                    nxt = mentioned[i + 1]
+                    curr_pos = flow.index(curr)
+                    nxt_pos = flow.index(nxt)
+                    if curr_pos >= nxt_pos:
+                        conflicts.append(Conflict(
+                            rule_id=rule_id,
+                            topic=topic,
+                            severity=Severity.ERROR,
+                            llm_claim=(f"Wrong flow order: {curr} should come "
+                                       f"before {nxt}"),
+                            kb_fact=(f"Flow diagram requires: {' → '.join(flow)}"),
+                            step_violation=f"Wrong order: {curr} → {nxt}",
+                        ))
+        
+        t1 = time.perf_counter()
+        return conflicts
+
+
 class ConflictDetector:
     """
     Üst seviye detector — tüm bileşenleri koordine eder.
@@ -535,6 +628,9 @@ class ConflictDetector:
         # v4.0: Workflow Governor
         self.workflow_validator = None  # lazy import WorkflowIntegrator
         self.last_step_violations: list = []  # v4.0: last detection's step violations
+        
+        # v4.4: FlowConflictMatcher (diagram flow validation)
+        self.flow_matcher = FlowConflictMatcher()
 
     def detect(self, llm_output: str, rule, topics: list,
                additional_terms: list[str] | None = None) -> list[Conflict]:
@@ -590,6 +686,15 @@ class ConflictDetector:
                 conflicts.extend(wf_conflicts)
             else:
                 self.last_step_violations = []
+            
+            # v4.4: Flow validation da erken dönüşte çalışsın
+            if hasattr(rule, 'diagram_flows') and rule.diagram_flows:
+                flow_conflicts = self.flow_matcher.match(
+                    output=llm_output, rule_id=rule.id,
+                    topic=rule.topic, diagram_flows=rule.diagram_flows,
+                )
+                conflicts.extend(flow_conflicts)
+            
             t1 = time.perf_counter()
             self._total_latency_us += (t1 - t0) * 1_000_000
             return conflicts
@@ -772,21 +877,37 @@ class ConflictDetector:
         conflicts.extend(wf_conflicts)
         self.last_step_violations = step_violations
 
+        # v4.4: Flow validation — diagram'daki akışa aykırı LLM output'larını yakala
+        if hasattr(rule, 'diagram_flows') and rule.diagram_flows:
+            flow_conflicts = self.flow_matcher.match(
+                output=llm_output,
+                rule_id=rule.id,
+                topic=rule.topic,
+                diagram_flows=rule.diagram_flows,
+            )
+            conflicts.extend(flow_conflicts)
+            if flow_conflicts:
+                logger.debug("FlowConflictMatcher: %d flow violations for %s",
+                             len(flow_conflicts), rule.id)
+
         return conflicts
 
     def _run_workflow_validation(self, llm_output: str, rule) -> tuple[list, list]:
-        """Run workflow validation if rule has steps.
+        """Run workflow validation if rule has steps or diagram flows.
         
         Returns (conflicts, step_violations) tuple.
         Used both in early-return (no claims) and normal flow.
         """
-        if not hasattr(rule, 'steps') or not rule.steps:
+        has_steps = hasattr(rule, 'steps') and rule.steps
+        has_diagram_flows = hasattr(rule, 'diagram_flows') and rule.diagram_flows
+        if not has_steps and not has_diagram_flows:
             return [], []
         try:
             if self.workflow_validator is None:
                 from anchor.compliance.workflow_validator import WorkflowIntegrator
                 self.workflow_validator = WorkflowIntegrator()
-            return self.workflow_validator.validate(llm_output, rule)
+            diagram_flows = getattr(rule, 'diagram_flows', None)
+            return self.workflow_validator.validate(llm_output, rule, diagram_flows=diagram_flows)
         except Exception as e:
             logger.warning("Workflow validation failed: %s", e)
             return [], []

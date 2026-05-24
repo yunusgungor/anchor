@@ -174,6 +174,46 @@ class ScalableRuleStore:
                     "strictness": strictness,
                 }
                 
+                # v4.4: Diagram metadata extraction
+                # Mermaid/ASCII diyagramlarını parse et, fact/flow/node bilgilerini çıkar
+                try:
+                    text = fpath.read_text(encoding="utf-8")
+                    from anchor.parser.diagram import (
+                        extract_diagram_blocks, diagram_to_facts, diagram_to_terms
+                    )
+                    diagrams = extract_diagram_blocks(text)
+                    if diagrams:
+                        meta["diagrams"] = diagrams
+                        
+                        # Diagram'dan fact'ler
+                        diag_facts = []
+                        for d in diagrams:
+                            diag_facts.extend(diagram_to_facts(d))
+                        if diag_facts:
+                            meta["diagram_facts"] = diag_facts
+                        
+                        # Diagram'dan term'ler (extended aliases)
+                        diag_terms = []
+                        for d in diagrams:
+                            diag_terms.extend(diagram_to_terms(d))
+                        if diag_terms:
+                            # Mevcut alias'lara ekle (fakat tekrarları önle)
+                            existing_lower = {a.lower() for a in (aliases or [])}
+                            new_terms = [t for t in diag_terms if t.lower() not in existing_lower]
+                            if new_terms:
+                                meta["aliases"] = (aliases or []) + new_terms[:10]
+                                meta["diagram_terms"] = diag_terms
+                        
+                        # Diagram flow'ları (workflow validation için)
+                        flows = []
+                        for d in diagrams:
+                            from anchor.parser.diagram import diagram_to_flows
+                            flows.extend(diagram_to_flows(d))
+                        if flows:
+                            meta["diagram_flows"] = flows
+                except Exception as e:
+                    logger.debug("Diagram extraction failed for %s: %s", rule_id, e)
+                
                 # Build-time enrichment (Phase 3)
                 if self._enricher is not None:
                     try:
@@ -606,6 +646,12 @@ class ScalableRuleStore:
                     if emb is not None:
                         rule.fact_embeddings = emb
                         rule.fact_texts = meta.get("fact_texts", [])
+                    
+                    # v4.4: Diagram flows
+                    flows = meta.get("diagram_flows", [])
+                    if flows:
+                        rule.diagram_flows = flows
+                    
                     return rule
                 except Exception:
                     pass

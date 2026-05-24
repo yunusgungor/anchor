@@ -88,6 +88,9 @@ class Rule:
     fact_embeddings: Any = None  # build-time pre-computed embeddings (np.ndarray)
     fact_texts: list[str] = field(default_factory=list)  # corresponding fact texts
     steps: list[Step] = field(default_factory=list)       # v4.0: workflow steps
+    
+    # v4.4: Diagram flows (from Mermaid/ASCII diagrams in rule files)
+    diagram_flows: list[list[str]] = field(default_factory=list)
 
     def __hash__(self):
         return hash(self.id)
