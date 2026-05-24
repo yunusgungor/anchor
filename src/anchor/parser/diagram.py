@@ -8,6 +8,8 @@ Sıfır LLM, tamamen regex+state-machine tabanlı.
 import re
 from typing import Any
 
+from anchor.config import DIAGRAM_MAX_FLOWS
+
 # ──────────────────────────────────────────
 # Mermaid Pattern Constants
 # ──────────────────────────────────────────
@@ -306,8 +308,10 @@ def parse_mermaid(code: str) -> dict[str, Any]:
     
     # İzin verilen akışları çıkar (node'lar arası edge'leri takip ederek)
     visited = set()
+    flow_count = [0]  # mutable counter for closure
     
     def find_flows(start, path, depth=0):
+        nonlocal flow_count
         if depth > 10:  # Döngü koruması
             return
         current = node_labels.get(start, start)  # son node'un label'ı
@@ -317,8 +321,11 @@ def parse_mermaid(code: str) -> dict[str, Any]:
         if not outgoing:
             if len(path) >= 2:
                 result["flows"].append(list(path))
+                flow_count[0] += 1
             return
         for e in outgoing:
+            if flow_count[0] >= DIAGRAM_MAX_FLOWS:
+                return  # Loopback patlamasını önle
             new_path = list(path)
             to_label = node_labels.get(e["to"], e["to"])
             new_path.append(to_label)
@@ -553,8 +560,10 @@ def _build_ascii_flows(result: dict[str, Any]) -> None:
     
     # Her node'dan başlayarak akışları bul
     visited_flows = set()
+    ascii_flow_count = [0]  # mutable counter for closure
     
     def find_flows_ascii(start_id, path, depth=0):
+        nonlocal ascii_flow_count
         if depth > 10:
             return
         path_key = " → ".join(str(p) for p in path)
@@ -566,8 +575,11 @@ def _build_ascii_flows(result: dict[str, Any]) -> None:
         if not outgoing:
             if len(path) >= 2:
                 result["flows"].append(list(path))
+                ascii_flow_count[0] += 1
             return
         for e in outgoing:
+            if ascii_flow_count[0] >= DIAGRAM_MAX_FLOWS:
+                return
             new_path = list(path) + [e["to_label"]]
             find_flows_ascii(e["to"], new_path, depth + 1)
     

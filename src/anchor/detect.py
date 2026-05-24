@@ -542,15 +542,92 @@ class FlowConflictMatcher:
         if not diagram_flows:
             return conflicts
         
+        # --- Holistic: output'taki tüm node mention'larını topla ---
+        # Tüm cümleler birleşik ele alınır (S2S holistic)
+        # Böylece "Services ... Domain Models" tek başına Repository mention'ını
+        # kaçırsa bile başka cümledeki "Repositories" yakalanır
+        all_mentioned_global: dict[str, int] = {}  # node → output pozisyonu
+        for flow in diagram_flows:
+            for node in flow:
+                if node.lower() in output_lower:
+                    pos = output_lower.index(node.lower())
+                    all_mentioned_global[node] = pos
+        
+        # --- Negation-aware: mention negatif bağlamda mı? ---
+        # Pattern: "no [X]", "not [X]", "without [X]", "skip [X]", 
+        #          "[X] is not needed", "bypass [X]", "don't [X]", "never [X]"
+        import re as _re
+        # (compiled inline in _is_negated)
+        
+        def _is_negated(node_name: str, output_text: str) -> bool:
+            """Node output'ta mention edilmiş ama negatif bağlamda mı?
+            
+            Uc strateji:
+            1. Exact prefix: negation_word + space + node (orn. "no postmortem")
+            2. Window prefix: negation_word + N token + node (orn. "never run ci")
+            3. Postfix: node + postfix (orn. "postmortem is not needed")
+            """
+            lower_text = output_text.lower()
+            escaped = _re.escape(node_name.lower())
+            
+            # (1) Exact prefix: negation word + whitespace + node name
+            prefix_exact = _re.compile(
+                r'\b(no|not|without|skip|skipping|bypass|bypassing|'
+                r'don\'t|doesn\'t|never|isn\'t|aren\'t|wasn\'t)\s+' + escaped + r'\b',
+                _re.IGNORECASE
+            )
+            if prefix_exact.search(lower_text):
+                return True
+            
+            # (2) Window prefix: negation word + up to 5 tokens + node name
+            # "never run ci" → "never ... ci" with "run" between
+            window_prefix = _re.compile(
+                r'\b(no|not|without|skip|skipping|bypass|bypassing|'
+                r'don\'t|doesn\'t|never|isn\'t|aren\'t|wasn\'t)'
+                r'(?:\s+\w+){0,6}\s+' + escaped + r'\b',
+                _re.IGNORECASE
+            )
+            if window_prefix.search(lower_text):
+                return True
+            
+            # (3) Postfix: node name + "... is not needed / is skipped / ..."
+            postfix_re = _re.compile(
+                escaped + r'\s+(is not needed|is unnecessary|is not required|'
+                r'is skipped|is bypassed|is not necessary|'
+                r'was skipped|was bypassed|should be skipped)\b',
+                _re.IGNORECASE
+            )
+            if postfix_re.search(lower_text):
+                return True
+            
+            return False
+        
         for flow in diagram_flows:
             if len(flow) < 2:
                 continue
             
             # Output'ta flow'daki hangi node'lar geçiyor?
-            mentioned = []
+            mentioned = []        # normal (non-negated) mention
+            negated_mentioned = []  # negated mention (örn. "no postmortem")
             for node in flow:
-                if node.lower() in output_lower:
-                    mentioned.append(node)
+                node_lower = node.lower()
+                if node_lower in output_lower:
+                    if _is_negated(node, output):
+                        negated_mentioned.append(node)
+                    else:
+                        mentioned.append(node)
+                else:
+                    # Fallback: node label'ındaki anlamlı kelimeleri dene
+                    # Örn: "CI Passes?" output'ta "CI" olarak geçiyor olabilir
+                    words = [w for w in _re.sub(r'[^\w\s]', ' ', node_lower).split()
+                             if len(w) >= 4 and w not in ('layer', 'the', 'and', 'for', 'with')]
+                    for w in words:
+                        if w in output_lower:
+                            if _is_negated(w, output):
+                                negated_mentioned.append(node)
+                            else:
+                                mentioned.append(node)
+                            break
             
             # Eğer output'ta 2+ node birden geçiyorsa, flow kontrol et
             if len(mentioned) >= 2:
@@ -562,6 +639,13 @@ class FlowConflictMatcher:
                 max_pos = max(positions_in_flow)
                 expected_nodes = flow[min_pos:max_pos + 1]
                 missing = [n for n in expected_nodes if n not in mentioned]
+                
+                # Negated node'ları da ekle: eğer negated node flow'un sonundaysa
+                # (veya başındaysa) ve mentioned set'in dışındaysa, SKIP olarak işaretle
+                for nn in negated_mentioned:
+                    np = flow.index(nn)
+                    if np < min_pos or np > max_pos:
+                        missing.append(nn)
                 
                 if missing:
                     conflicts.append(Conflict(

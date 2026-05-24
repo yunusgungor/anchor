@@ -582,8 +582,14 @@ class ScalableRuleStore:
                 partial = " ".join(parts[i:])
                 candidate_ids.update(self._shard_topic_map.get(partial, []))
         
-        # 3. Semantic fallback (eğer az sonuç varsa)
-        if len(candidate_ids) < 3 and llm_output:
+        # 3. Semantic fallback (eğer az sonuç varsa VE query zayıfsa)
+        # NOT: Query bazlı match bulunduysa semantic fallback cross-rule FP üretir.
+        semantic_context = getattr(self, '_last_query_semantic', '')
+        is_query_direct = bool(topics and any(
+            self._rule_meta.get(rid, {}).get("topic", "").lower() == t.lower()
+            for rid in candidate_ids for t in topics
+        ))
+        if len(candidate_ids) < 3 and llm_output and not is_query_direct:
             semantic_hits = self._semantic.query(llm_output, top_k=5)
             for rule_id, sim in semantic_hits:
                 if sim > 0.15:  # Threshold

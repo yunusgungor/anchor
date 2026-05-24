@@ -172,10 +172,18 @@ class AnchorEngine:
                             break
         
         # v4.3: DISTINCTIVE KEYWORD MATCHING — zero-config topic discovery
-        # LLM çıktısında distinctive keyword varsa, o rule'u otomatik tetikle
+        # NOT: Query bazlı match bulunduysa (topics dolu), sadece o rule'ların
+        #      keyword'lerini ekle, farklı rule'ların keyword'leri cross-rule FP üretir.
         kw_index = getattr(self.store, '_distinctive_keyword_index', {})
         keyword_matches: dict[str, list[str]] = {}  # rule_id → matched keywords
         if kw_index and llm_output and len(llm_output) >= 10:
+            # Query bazlı bulunan rule_id'leri belirle
+            query_matched_ids = set()
+            if topics:
+                for rid, meta in self.store._rule_meta.items():
+                    if meta["topic"] in topic_names:
+                        query_matched_ids.add(rid)
+            
             output_lower = llm_output.lower()
             for keyword, rule_ids in kw_index.items():
                 if keyword in output_lower:  # %0 false positive: exact substring
@@ -190,7 +198,14 @@ class AnchorEngine:
                         continue  # Skip: bu keyword topic eklemeye değmez
                     for rid in rule_ids:
                         meta = self.store._rule_meta.get(rid)
-                        if meta and meta["topic"] not in topic_names:
+                        if not meta:
+                            continue
+                        # Cross-rule FP guard: query match varken farklı rule ekleme
+                        if query_matched_ids and rid not in query_matched_ids:
+                            # Sadece çok spesifik keyword'ler cross-rule geçebilir
+                            if not ('/' in keyword or '-' in keyword):
+                                continue
+                        if meta["topic"] not in topic_names:
                             topic_names.append(meta["topic"])
                             topics.append(Topic(name=meta["topic"], confidence=0.65))
                         # Track matched keywords for claim extraction
@@ -234,7 +249,8 @@ class AnchorEngine:
         if all_conflicts:
             corrected_text, patches = self.patcher.apply(llm_output, all_conflicts)
             
-            # Corrections listesi oluştur
+            # Corrections listesi oluştur (deduplike)
+            seen_claims = set()
             corrections = []
             for patch in patches:
                 # Patch'ten corresponding conflict'i bul
@@ -243,6 +259,11 @@ class AnchorEngine:
                     None
                 )
                 if conflict:
+                    # Dedup: aynı llm_claim'den sadece 1 correction
+                    claim_key = conflict.llm_claim.lower().strip()
+                    if claim_key in seen_claims:
+                        continue
+                    seen_claims.add(claim_key)
                     corrections.append(Correction(
                         conflict=conflict,
                         original_text=patch.original,
