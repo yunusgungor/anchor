@@ -8,7 +8,8 @@ steps:
   - id: write-failing-test
     title: "Kırmızı: Başarısız Test Yaz"
     mandatory: true
-    checks: ["test", "fail", "assert", "expect", "compile", "red"]
+    aliases: ["started with a failing test", "wrote a failing test"]
+    ch...[truncated]
   - id: verify-failure
     title: "Testin Gerçekten Başarısız Olduğunu Doğrula"
     mandatory: true

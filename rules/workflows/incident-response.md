@@ -8,6 +8,7 @@ steps:
   - id: detect
     title: "İhlali Tespit Et ve Bildir"
     mandatory: true
+    aliases: ["detected the production incident", "incident happened", "o...[truncated]
     checks: ["alert", "monitor", "error", "on-call", "incident", "pager"]
   - id: assess
     title: "Etkiyi ve Şiddeti Değerlendir (SEV)"

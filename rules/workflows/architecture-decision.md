@@ -8,6 +8,7 @@ steps:
   - id: define-context
     title: "Problemi ve Bağlamı Tanımla"
     mandatory: true
+    aliases: ["defined the problem", "defined the context", "set the sc...[truncated]
     checks: ["context", "problem", "constraint", "goal", "scope"]
   - id: research-options
     title: "Seçenekleri Araştır (En Az 3 Alternatif)"

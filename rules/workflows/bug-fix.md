@@ -8,7 +8,8 @@ steps:
   - id: reproduce
     title: "Bug'ı Reprodüse Et (Kesin Adımlarla)"
     mandatory: true
-    checks: ["reproduce", "replicable", "steps", "environment", "reproduction"]
+    aliases: ["reproduced the bug", "reproduced issue"]
+    checks: ["reprod...[truncated]
   - id: root-cause
     title: "Kök Neden Analizi (5 Whys)"
     mandatory: true

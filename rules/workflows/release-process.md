@@ -8,7 +8,8 @@ steps:
   - id: version-bump
     title: "Versiyon Numarasını Güncelle (SemVer)"
     mandatory: true
-    checks: ["version", "semver", "major", "minor", "patch", "changelog"]
+    aliases: ["bumped the version", "updated version"]
+  ...[truncated]
   - id: changelog
     title: "Changelog'u Güncelle"
     mandatory: true

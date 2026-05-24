@@ -29,26 +29,26 @@ logger = logging.getLogger(__name__)
 
 
 STEP_TERM_MAP: dict[str, list[str]] = {
-    "pr'yi incele": ['review pr', 'review pull request', 'examine diff', 'pull request review'],
-    'iş mantığı ve doğruluk kontrolü': ['business logic', 'correctness', 'edge case review', 'boundary checks'],
-    'kod kalitesi ve standartlar': ['code quality', 'style', 'naming', 'complexity', 'solid'],
-    'güvenlik taraması': ['security review', 'security scan', 'auth review', 'xss', 'injection'],
-    'test kapsamı doğrulama': ['test coverage', 'coverage review', 'tests checked', 'assertions reviewed'],
-    'onayla veya değişiklik iste': ['approve', 'request changes', 'lgtm', 'commented changes'],
-    'kök neden analizi': ['root cause', '5 whys', 'traceback analysis'],
-    'postmortem yaz ve önlem al': ['postmortem', 'blameless retro', 'action items', 'prevent recurrence'],
-    'kırmızı: başarısız test yaz': ['write failing test', 'red phase', 'failing spec'],
-    'yeşil: geçmesi için minimal kod yaz': ['minimal code', 'green phase', 'make test pass'],
-    'refactor': ['refactor', 'eliminate duplication', 'simplify design', 'improve structure'],
-    "story'i anla": ['understand story', 'acceptance criteria', 'definition of done'],
-    'test planı oluştur': ['test plan', 'test strategy', 'scenarios', 'edge cases'],
-    'pull request oluştur': ['open pr', 'create pr', 'submit pull request'],
-    'versiyon numarasını güncelle': ['version bump', 'semver', 'update version'],
-    'git tag oluştur': ['git tag', 'annotated tag', 'signed tag'],
-    'production dağıtımı': ['production deploy', 'deploy to prod', 'canary rollout'],
-    'ihlali tespit et ve bildir': ['detect incident', 'alert fired', 'incident reported'],
-    'etkiyi ve şiddeti değerlendir': ['assess severity', 'sev1', 'sev2', 'impact analysis'],
-    'etkiyi azalt': ['mitigate', 'rollback', 'hotfix', 'stop the bleed'],
+    "pr'yi incele": ['review pr', 'review pull request', 'examine diff', 'pull request review', 'reviewed the pr'],
+    'iş mantığı ve doğruluk kontrolü': ['business logic', 'correctness', 'edge case review', 'boundary checks', 'checked business logic'],
+    'kod kalitesi ve standartlar': ['code quality', 'style', 'naming', 'complexity', 'solid', 'maintainability'],
+    'güvenlik taraması': ['security review', 'security scan', 'auth review', 'xss', 'injection', 'reviewed security implications'],
+    'test kapsamı doğrulama': ['test coverage', 'coverage review', 'tests checked', 'assertions reviewed', 'validated test coverage'],
+    'onayla veya değişiklik iste': ['approve', 'request changes', 'lgtm', 'commented changes', 'approved the changes'],
+    'kök neden analizi': ['root cause', '5 whys', 'traceback analysis', 'analyzed the root cause'],
+    'postmortem yaz ve önlem al': ['postmortem', 'blameless retro', 'action items', 'prevent recurrence', 'wrote a postmortem with action items'],
+    'kırmızı: başarısız test yaz': ['write failing test', 'red phase', 'failing spec', 'started with a failing test'],
+    'yeşil: geçmesi için minimal kod yaz': ['minimal code', 'green phase', 'make test pass', 'wrote minimal code'],
+    'refactor': ['refactor', 'eliminate duplication', 'simplify design', 'improve structure', 'refactored to simplify the design'],
+    "story'i anla": ['understand story', 'acceptance criteria', 'definition of done', 'read the story and acceptance criteria'],
+    'test planı oluştur': ['test plan', 'test strategy', 'scenarios', 'edge cases', 'created a test plan'],
+    'pull request oluştur': ['open pr', 'create pr', 'submit pull request', 'opened a pr'],
+    'versiyon numarasını güncelle': ['version bump', 'semver', 'update version', 'bumped the version'],
+    'git tag oluştur': ['git tag', 'annotated tag', 'signed tag', 'tagged the release'],
+    'production dağıtımı': ['production deploy', 'deploy to prod', 'canary rollout', 'deployed to production'],
+    'ihlali tespit et ve bildir': ['detect incident', 'alert fired', 'incident reported', 'detected the production incident'],
+    'etkiyi ve şiddeti değerlendir': ['assess severity', 'sev1', 'sev2', 'impact analysis', 'assessed severity'],
+    'etkiyi azalt': ['mitigate', 'rollback', 'hotfix', 'stop the bleed', 'rolled back to mitigate'],
 }
 
 CHECK_ALIAS_MAP: dict[str, list[str]] = {
@@ -238,22 +238,21 @@ class StepExtractor:
                             best_pos = min(positions)
 
             if best_confidence < 0.5 and step.checks:
-                check_words_found = 0
+                check_words_found = 0.0
                 for check in step.checks:
                     matched = False
                     for variant in _expand_check_aliases(check):
                         if _match_check_variant(output_lower, variant):
                             matched = True
-                            check_words_found += 1
+                            check_words_found += 1.0
                             break
                         if _match_check_fuzzy(output_lower, variant):
                             matched = True
                             check_words_found += 0.75
                             break
-                    if matched:
-                        continue
-                if check_words_found > 0:
-                    confidence = 0.3 + (0.15 * min(1.0, check_words_found))
+                coverage = check_words_found / max(1, len(step.checks))
+                if coverage >= 0.34:
+                    confidence = 0.35 + (0.45 * min(1.0, coverage))
                     if confidence > best_confidence:
                         best_confidence = confidence
                         best_pos = 0 if best_pos < 0 else best_pos
@@ -355,24 +354,30 @@ class CompletenessValidator:
 
             if step.id in executed_ids and step.checks:
                 missing_checks = []
+                matched_score = 0.0
                 for check in step.checks:
                     matched = False
                     for variant in _expand_check_aliases(check):
                         if _match_check_variant(output_lower, variant):
                             matched = True
+                            matched_score += 1.0
                             break
                         if _match_check_fuzzy(output_lower, variant):
                             matched = True
+                            matched_score += 0.75
                             break
                     if not matched:
                         missing_checks.append(check)
 
-                if missing_checks:
+                coverage = matched_score / max(1, len(step.checks))
+                if missing_checks and coverage < 0.8:
+                    severity = Severity.WARNING if coverage >= 0.5 else Severity.ERROR
+                    confidence = 0.7 if coverage >= 0.5 else 0.85
                     violations.append(StepViolation(
                         violation_type=ViolationType.INCOMPLETE_STEP,
                         step_id=step.id,
                         step_title=step.title,
-                        severity=Severity.WARNING,
+                        severity=severity,
                         message=(
                             f"Adım '{step.title}' eksik uygulanmış. "
                             f"Eksik kontroller: {', '.join(missing_checks)}"
@@ -381,7 +386,7 @@ class CompletenessValidator:
                             f"'{step.title}' adımında şu kontrolleri ekleyin: "
                             f"{', '.join(missing_checks)}"
                         ),
-                        confidence=0.85,
+                        confidence=confidence,
                     ))
         return violations
 

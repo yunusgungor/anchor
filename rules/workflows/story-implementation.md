@@ -8,6 +8,7 @@ steps:
   - id: understand
     title: "Story'i Anla ve Kabul Kriterlerini Doğrula"
     mandatory: true
+    aliases: ["read the story and acceptance criteria...[truncated]
     checks: ["kabul kriteri", "DoD", "acceptance criteria", "definition of done", "story"]
   - id: test-plan
     title: "Test Planı Oluştur (Unit/Integration/E2E)"

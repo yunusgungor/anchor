@@ -8,7 +8,8 @@ steps:
   - id: review-pr
     title: "PR'yi İncele (Diff + Context)"
     mandatory: true
-    checks: ["diff", "context", "description", "ticket", "pull request"]
+    depends_on: []
+    aliases: ["reviewed the pr", "review th...[truncated]
   - id: logic-check
     title: "İş Mantığı ve Doğruluk Kontrolü"
     mandatory: true
