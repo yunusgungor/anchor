@@ -31,9 +31,13 @@ ui = [
     "fastapi>=0.100",
     "uvicorn>=0.23",
 ]
+judge = [
+    "sentence-transformers>=2.2",
+]
 all = [
     "fastapi>=0.100",
     "uvicorn>=0.23",
+    "sentence-transformers>=2.2",
 ]
 
 [project.urls]

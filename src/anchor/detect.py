@@ -23,10 +23,11 @@ class MatchResult:
     claim: str
     fact: str
     edit_distance: float      # 0-1 normalize edilmiş
-    semantic_distance: float  # 0-1
+    semantic_distance: float  # 0-1 (Jaccard veya embedding)
     negative_distance: float  # 0-1
     combined_distance: float  # Ağırlıklı toplam
     is_conflict: bool         # Çelişki var mı?
+    embedding_distance: float = -1.0  # -1 if not computed
 
 
 @dataclass
@@ -188,12 +189,24 @@ class ClaimExtractor:
 
 
 class FactMatcher:
-    """KB'deki bir fact ile LLM'in claim'i arasındaki mesafeyi ölçer."""
+    """KB'deki bir fact ile LLM'in claim'i arasındaki mesafeyi ölçer.
 
-    def __init__(self, alpha: float = 0.4, beta: float = 0.4, gamma: float = 0.2):
+    α·d_edit + β·d_sem + γ·d_neg
+      d_edit: SequenceMatcher (Levenshtein)
+      d_sem : Jaccard (fallback) veya embedding cosine similarity
+      d_neg : Olumsuzluk ifadesi tespiti
+
+    Embedding modu:
+        matcher = FactMatcher(use_embedding=True)
+        load_model()  # bir kere
+    """
+
+    def __init__(self, alpha: float = 0.4, beta: float = 0.4, gamma: float = 0.2,
+                 use_embedding: bool = False):
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
+        self.use_embedding = use_embedding
         self._total_calls = 0
         self._total_latency_us = 0
 
@@ -204,14 +217,48 @@ class FactMatcher:
         d_edit = self._compute_edit_distance(claim, fact)
         d_sem = self._compute_semantic_distance(claim, fact)
         d_neg = self._compute_negative_distance(claim)
-        d_combined = self.alpha * d_edit + self.beta * d_sem + self.gamma * d_neg
-        is_conflict = d_combined > 0.4
+        
+        # Embedding distance (if available)
+        d_emb = -1.0
+        if self.use_embedding:
+            try:
+                from anchor.judge.embedding import semantic_distance
+                d = semantic_distance(claim, fact)
+                if d is not None:
+                    d_emb = d
+            except Exception:
+                pass
+        
+        # Combined distance: embedding-aware if available
+        if d_emb >= 0:
+            if d_emb < 0.5:
+                # Embedding says semantically related → paraphrase olabilir
+                d_combined = self.alpha * d_edit + self.beta * d_emb + self.gamma * d_neg
+                is_conflict = d_combined > 0.5
+                d_sem_effective = d_emb
+            elif d_emb > 0.7:
+                # Embedding says VERY different → farklı alt-konular
+                # Sadece güçlü çelişkiler geçmeli
+                d_combined = self.alpha * d_edit + self.beta * d_sem + self.gamma * d_neg
+                is_conflict = d_combined > 0.7
+                d_sem_effective = d_sem
+            else:
+                # Embedding neutral → standart formül
+                d_combined = self.alpha * d_edit + self.beta * d_sem + self.gamma * d_neg
+                is_conflict = d_combined > 0.4
+                d_sem_effective = d_sem
+        else:
+            # No embedding: standard formula
+            d_combined = self.alpha * d_edit + self.beta * d_sem + self.gamma * d_neg
+            is_conflict = d_combined > 0.4
+            d_sem_effective = d_sem
 
         result = MatchResult(
             claim=claim, fact=fact,
-            edit_distance=d_edit, semantic_distance=d_sem,
+            edit_distance=d_edit, semantic_distance=d_sem_effective,
             negative_distance=d_neg, combined_distance=d_combined,
             is_conflict=is_conflict,
+            embedding_distance=d_emb,
         )
 
         t1 = time.perf_counter()
@@ -223,6 +270,21 @@ class FactMatcher:
         return 1.0 - sm.ratio()
 
     def _compute_semantic_distance(self, claim: str, fact: str) -> float:
+        """Semantic distance: embedding cosine similarity veya Jaccard fallback."""
+        if self.use_embedding:
+            try:
+                from anchor.judge.embedding import semantic_distance
+                d = semantic_distance(claim, fact)
+                if d is not None:
+                    return d
+            except Exception:
+                pass
+            # Fallback to Jaccard on error
+        # Jaccard distance (word overlap)
+        return self._compute_jaccard_distance(claim, fact)
+
+    def _compute_jaccard_distance(self, claim: str, fact: str) -> float:
+        """Jaccard distance (1 - intersection/union)."""
         claim_words = set(self._tokenize(claim))
         fact_words = set(self._tokenize(fact))
         if not claim_words or not fact_words:
@@ -305,10 +367,13 @@ class ConflictDetector:
     Extractor dışarıdan enjekte edilebilir (AnchorEngine ile paylaşmak için).
     """
 
-    def __init__(self, extractor: Optional["ClaimExtractor"] = None):
+    def __init__(self, extractor: Optional["ClaimExtractor"] = None,
+                 use_embedding: bool = False):
         self.extractor = extractor or ClaimExtractor()
-        self.matcher = FactMatcher()
+        self.matcher = FactMatcher(use_embedding=use_embedding)
+        self._jaccard_matcher = FactMatcher(use_embedding=False)  # also_correct için
         self.severity = SeverityEngine()
+        self.use_embedding = use_embedding
         self._total_calls = 0
         self._total_latency_us = 0
 
@@ -388,7 +453,7 @@ class ConflictDetector:
                     also_correct = False
                     if known_wrong and facts:
                         for fact in facts:
-                            fm = self.matcher.match(claim.text, fact)
+                            fm = self._jaccard_matcher.match(claim.text, fact)
                             if fm.combined_distance < 0.5:
                                 also_correct = True
                                 break

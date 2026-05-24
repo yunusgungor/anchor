@@ -43,11 +43,14 @@ class AnchorEngine:
             print(result.summary)
     """
     
-    def __init__(self, rules_path: str, index_path: Optional[str] = None):
+    def __init__(self, rules_path: str, index_path: Optional[str] = None,
+                 use_embedding: bool = False):
         self.store = ScalableRuleStore(rules_path, index_path)
         self.extractor = ClaimExtractor()
-        self.detector = ConflictDetector(extractor=self.extractor)  # Paylaşılan extractor
+        self.detector = ConflictDetector(extractor=self.extractor,
+                                          use_embedding=use_embedding)
         self.patcher = PatchEngine()
+        self.use_embedding = use_embedding
         
         # İstatistik
         self._total_processed = 0
