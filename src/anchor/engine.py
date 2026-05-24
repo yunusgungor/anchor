@@ -148,6 +148,28 @@ class AnchorEngine:
         
         topic_names = [t.name for t in topics]
         
+        # v4.2: OUTPUT-BASED topic extraction — query zayıfsa LLM çıktısını tara
+        if not topics and llm_output and len(llm_output) >= 10:
+            output_lower = llm_output.lower()
+            for rid, meta in self.store._rule_meta.items():
+                tn = meta["topic"]
+                if tn in topic_names:
+                    continue
+                # Check topic in output
+                topic_lower = tn.lower()
+                if len(topic_lower) >= 4 and topic_lower in output_lower:
+                    topic_names.add(tn)
+                    topics.append(Topic(name=tn, confidence=0.55))
+                    continue
+                # Check aliases in output
+                for alias in meta.get("aliases", []):
+                    alias_lower = alias.lower()
+                    if len(alias_lower) >= 4 and alias_lower in output_lower:
+                        if tn not in topic_names:
+                            topic_names.add(tn)
+                            topics.append(Topic(name=tn, confidence=0.60))
+                            break
+        
         # === A2: Knowledge Retrieval ===
         # Scalable store: bloom → semantic → lazy load
         rules = self.store.query(topic_names, llm_output)

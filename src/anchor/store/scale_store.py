@@ -88,10 +88,23 @@ class ScalableRuleStore:
                 self._semantic = loaded["semantic"]
                 self._rule_meta = {r["id"]: r for r in loaded.get("rule_metadata", [])}
                 self._built = True
+                # Eager model pre-warm for <10ms first query
+                if self._use_embedding:
+                    self._pre_warm_model()
                 return
         
         # 2. Yoksa rebuild et
         self._rebuild()
+    
+    def _pre_warm_model(self):
+        """Embedding model'i eager yükle — ilk sorgu hızlı olsun."""
+        try:
+            from anchor.judge.embedding import load_model, get_model_info
+            loaded = load_model()
+            if loaded:
+                logger.debug("Embedding model pre-warmed: %s", get_model_info())
+        except Exception as e:
+            logger.debug("Embedding model pre-warm skipped: %s", e)
     
     def _rebuild(self):
         """Tüm index'leri sıfırdan inşa et ve diske kaydet."""
@@ -128,8 +141,8 @@ class ScalableRuleStore:
                     topic_words = set(_re.findall(r'\b[a-zA-Zçğıöşüü]{4,}\b', topic.lower()))
                     excluded = {'rules', 'principles', 'standards', 'guide', 'cycle',
                                 'process', 'practices', 'about', 'and', 'the', 'for',
-                                'with', 'code', 'testing', 'management', 'production',
-                                'architecture', 'naming', 'function'}
+                                'with', 'testing', 'management', 'production',
+                                'naming', 'clean'}
                     word_aliases = [w for w in topic_words if w not in excluded]
                     # Also add the original topic as a fallback alias
                     topic_as_alias = topic.lower().strip()

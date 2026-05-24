@@ -93,6 +93,15 @@ def is_available() -> bool:
     return _model is not None
 
 
+def get_model_info() -> str:
+    """Get current model info string, or 'not loaded'."""
+    if _model is None:
+        return "not loaded"
+    if _model_name:
+        return _model_name.replace("sentence-transformers/", "")
+    return f"model@{id(_model)}"
+
+
 def encode(text: str, normalize: bool = True) -> Optional[np.ndarray]:
     """Encode a single text string to a vector.
 
