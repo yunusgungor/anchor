@@ -21,23 +21,23 @@ class TestDomainSharding:
         """Shard'lar otomatik keşfedilmeli."""
         router = ShardRouter(RULES_PATH)
         shards = router.list_shards()
-        assert len(shards) >= 3  # hardware, projects, concepts
-        assert "hardware" in shards
-        assert "projects" in shards
-        assert "concepts" in shards
+        assert len(shards) >= 8  # 9 shards: architecture, clean-code, ci-cd, documentation, git-practices, project-management, security, tdd, workflows
+        assert "architecture" in shards
+        assert "clean-code" in shards
+        assert "workflows" in shards
     
     def test_topic_to_shard_routing(self):
         """Topic → shard eşlemesi çalışmalı."""
         router = ShardRouter(RULES_PATH)
-        shards = router.route(["Neural Processor X1"])
-        assert "hardware" in shards
+        shards = router.route(["Code Review Process"])
+        assert "workflows" in shards
     
     def test_alias_routing(self):
         """Alias ile shard routing çalışmalı."""
         router = ShardRouter(RULES_PATH)
-        shards = router.route(["NPX1"])
-        # NPX1 alias'ı riscv-npu.md'de, bu hardware shard'ında
-        assert "hardware" in shards
+        shards = router.route(["code review"])
+        # "code review" alias'ı Code Review Process rule'unda, workflows shard'ında
+        assert "workflows" in shards
     
     def test_no_match_routing(self):
         """Eşleşmeyen topic → boş shard set."""
@@ -61,9 +61,9 @@ class TestBloomIndex:
         """Var olan topic → True."""
         bloom = BloomIndex()
         bloom.build_from_rules(RULES_PATH)
-        assert bloom.contains("Neural Processor X1") is True
-        assert bloom.contains("riscv-npu") is True
-        assert bloom.contains("SKY130") is True
+        assert bloom.contains("clean-architecture") is True
+        assert bloom.contains("solid-principles") is True
+        assert bloom.contains("code review") is True
     
     def test_negative_membership(self):
         """Olmayan topic → False (kesin dışarıda)."""
@@ -76,9 +76,9 @@ class TestBloomIndex:
         """Birden fazla topic kontrolü."""
         bloom = BloomIndex()
         bloom.build_from_rules(RULES_PATH)
-        has_any, matches = bloom.check_topics(["Neural Processor X1", "Bitcoin"])
+        has_any, matches = bloom.check_topics(["clean-architecture", "Bitcoin"])
         assert has_any is True
-        assert "Neural Processor X1" in matches
+        assert "clean-architecture" in matches
         assert "Bitcoin" not in matches
 
 
@@ -98,12 +98,12 @@ class TestSemanticIndex:
         idx = SemanticIndex(max_features=500)
         idx.fit(RULES_PATH)
         
-        # NPX1 hakkında bir metin
-        results = idx.query("RISC-V tabanlı edge AI işlemcisi", top_k=3)
+        # Agile/retro hakkında bir sorgu (max_features=500 ile çalışan)
+        results = idx.query("agile backlog refinement retrospective", top_k=3)
         assert len(results) > 0
-        # En yüksek skorlu rule riscv-npu olmalı
+        # En yüksek skorlu rule agile-and-refinement veya retrospectives olmalı
         top_id = results[0][0]
-        assert "riscv" in top_id or "npu" in top_id
+        assert "agile" in top_id or "retro" in top_id or "refinement" in top_id
     
     def test_query_no_match(self):
         """Alakasız metin → düşük skor veya boş."""
@@ -128,9 +128,9 @@ class TestScalableStore:
         assert len(store._hot_cache) == 0
         
         # Sorgu yap → lazy load
-        results = store.query(["Neural Processor X1"])
+        results = store.query(["clean-architecture"])
         assert len(results) >= 1
-        assert results[0].id == "riscv-npu"
+        assert results[0].id == "clean-architecture"
         
         # Şimdi cache'te olmalı
         assert len(store._hot_cache) >= 1
@@ -155,7 +155,7 @@ class TestScalableStore:
         # Topic boş, sadece LLM output'u var
         results = store.query(
             topics=[],
-            llm_output="NPX1 is an edge AI processor using RISC-V architecture for agricultural applications"
+            llm_output="single responsibility principle open closed Liskov substitution interface segregation dependency inversion SOLID"
         )
-        # Semantic index sayesinde riscv-npu bulunmalı
+        # Semantic index sayesinde solid-principles bulunmalı
         assert len(results) >= 1

@@ -30,11 +30,11 @@ class TestAnchorEngine:
 
     def test_critical_conflict_override(self, engine):
         result = engine.process(
-            user_query="NPX1 nedir?",
-            llm_output="NPX1, TSMC 7nm'de üretilir."
+            user_query="function-design hakkında",
+            llm_output="function-design: It is acceptable to have 500-line functions with mixed abstraction levels."
         )
         assert result.modified
-        assert "SKY130" in result.corrected
+        assert len(result.corrections) >= 1
 
     def test_latency_budget(self, engine):
         result = engine.process(
@@ -100,12 +100,12 @@ class TestAnchorEngineEdgeCases:
 
     def test_multiple_paragraphs(self, engine):
         """Çok paragraflı LLM çıktısı."""
-        llm_output = """NPX1, genel amaçlı bir AI hızlandırıcısıdır.
+        llm_output = """Code review: Quick formatting check only.
 
-TSMC 7nm'de üretilir ve yüksek performans sunar.
+No need to look at the logic, just approve if the syntax looks ok.
 
-NVIDIA Jetson ile rekabet eder."""
-        result = engine.process("NPX1 nedir?", llm_output)
+Design review is a waste of time for small changes."""
+        result = engine.process("code review nasıl yapılır", llm_output)
         assert result.modified
         # Düzeltme yapılmış olmalı
         assert len(result.corrections) >= 1
@@ -144,8 +144,8 @@ NVIDIA Jetson ile rekabet eder."""
     def test_partial_match_with_alias(self, engine):
         """Alias ile eşleşme çalışmalı."""
         result = engine.process(
-            "NPX1 hakkında bilgi",
-            "NPX1, genel AI hızlandırıcısıdır."
+            "code review nasıl yapılır",
+            "code review: You only need to check the formatting, skip the design review."
         )
-        assert result.modified  # NPX1 alias'ta var
-        assert "Edge" in result.corrected  # Edge AI olarak düzeltilmeli
+        assert result.modified  # "code review" alias'ta var
+        assert "Eksik Adım" in result.corrected or "doğrusu" in result.corrected

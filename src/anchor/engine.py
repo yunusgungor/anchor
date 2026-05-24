@@ -118,12 +118,20 @@ class AnchorEngine:
         if len(query_lower) >= 3:
             for rid, meta in self.store._rule_meta.items():
                 matched = False
-                # Topic kontrol: query topic içeriyor mu?
-                if meta["topic"].lower() in query_lower:
+                # Topic kontrol: query topic adını içeriyor mu?
+                topic_lower = meta["topic"].lower()
+                if len(topic_lower) >= 3 and topic_lower in query_lower:
                     tn = meta["topic"]
                     if tn not in topic_names:
                         topic_names.add(tn)
                         topics.append(Topic(name=tn, confidence=0.85))
+                        matched = True
+                elif query_lower in topic_lower and len(query_lower) >= 3:
+                    # Query topic'in bir parçası (örn. "TDD" → "TDD Cycle")
+                    tn = meta["topic"]
+                    if tn not in topic_names:
+                        topic_names.add(tn)
+                        topics.append(Topic(name=tn, confidence=0.80))
                         matched = True
                 # Alias kontrol: query alias içeriyor mu? veya alias query'i?
                 for alias in meta.get("aliases", []):

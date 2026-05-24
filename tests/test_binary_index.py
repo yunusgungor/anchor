@@ -45,9 +45,9 @@ class TestBinaryIndex:
         store2.build()
         
         # Aynı sonuçlar?
-        results = store2.query(["Neural Processor X1"])
+        results = store2.query(["clean-architecture"])
         assert len(results) >= 1
-        assert results[0].id == "riscv-npu"
+        assert results[0].id == "clean-architecture"
     
     def test_stale_detection(self):
         """Rules dizini değişince index stale olmalı."""
@@ -58,7 +58,7 @@ class TestBinaryIndex:
         assert not store._binman.is_stale()
         
         # Bir rule dosyasını "değiştir" (touch)
-        rule_file = Path(RULES_PATH) / "hardware" / "riscv-npu.md"
+        rule_file = Path(RULES_PATH) / "architecture" / "clean-architecture.md"
         if rule_file.exists():
             # mtime'ı değiştir
             os.utime(rule_file, None)
@@ -89,13 +89,13 @@ class TestBinaryIndex:
         store2.build()
         
         # Topic query
-        results = store2.query(["Neural Processor X1"])
+        results = store2.query(["clean-architecture"])
         assert len(results) >= 1
         
         # Semantic query (topic yok)
         results2 = store2.query(
             topics=[],
-            llm_output="NPX1 edge AI processor RISC-V"
+            llm_output="single responsibility principle open closed Liskov substitution"
         )
         assert len(results2) >= 1
     
@@ -113,5 +113,5 @@ class TestBinaryIndex:
         store2.build()
         
         assert os.path.exists(INDEX_PATH)
-        results = store2.query(["StateGuard Agent"])
+        results = store2.query(["clean-architecture"])
         assert len(results) >= 1
