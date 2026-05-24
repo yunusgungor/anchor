@@ -178,6 +178,15 @@ class AnchorEngine:
             output_lower = llm_output.lower()
             for keyword, rule_ids in kw_index.items():
                 if keyword in output_lower:  # %0 false positive: exact substring
+                    # FP guard: sadece anlamlı keyword'ler topic eklesin
+                    # Kısa/generic keyword'ler false positive üretir
+                    # Anlamlı: >=6 karakter veya özel karakter içeriyor
+                    is_meaningful = (
+                        len(keyword) >= 6 or
+                        '/' in keyword or '-' in keyword
+                    )
+                    if not is_meaningful:
+                        continue  # Skip: bu keyword topic eklemeye değmez
                     for rid in rule_ids:
                         meta = self.store._rule_meta.get(rid)
                         if meta and meta["topic"] not in topic_names:

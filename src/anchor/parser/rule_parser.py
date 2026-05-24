@@ -236,16 +236,27 @@ class RuleParser:
             elif len(first) < 80 and not first.startswith(("-", "*", ">")):
                 topic = first
         
-        # Alias tespiti: parantez içinde veya "veya", "also known as"
+        # Alias tespiti: sadece gerçek alias'ları al
+        # Parantez içi: (GoF), (DDD), (Neural Processor X1), (Single Responsibility)
         aliases = []
-        alias_patterns = [
-            r"\(([^)]+)\)",  # Parantez içi
-            r"also known as[:\s]+([^\n,]+)",  # also known as
-            r"aka[:\s]+([^\n,]+)",  # aka
-        ]
-        for pattern in alias_patterns:
+        # Short uppercase acronyms: (GoF), (DDD), (ABC)
+        for match in re.finditer(r'\(([A-Z]{2,6})\)', text):
+            alias = match.group(1).strip()
+            if alias and alias not in aliases:
+                aliases.append(alias)
+        # Title-case phrases: (Neural Processor X1), (Single Responsibility)
+        for match in re.finditer(r'\(([A-Z][a-zA-Z0-9\s_-]{2,48})\)', text):
+            alias = match.group(1).strip()
+            if (alias and alias not in aliases 
+                and len(alias) >= 3 and len(alias) <= 40
+                and not any(w in alias.lower() for w in ['e.g', 'i.e', 'aka', 'etc'])):  # Skip examples
+                aliases.append(alias)
+        # also known as / aka
+        for pattern in [r'also known as[::\s]+([^,\n]+)', r'aka[::\s]+([^,\n]+)']:
             for match in re.finditer(pattern, text, re.IGNORECASE):
-                aliases.append(match.group(1).strip())
+                alias = match.group(1).strip().strip('"\'')
+                if alias and len(alias) > 2 and alias not in aliases:
+                    aliases.append(alias)
         
         # Tags tespiti: #hashtag veya [tag] kalıpları
         tags = []

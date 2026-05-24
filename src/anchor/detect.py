@@ -589,10 +589,14 @@ class ConflictDetector:
         claims = self.extractor.extract(llm_output, rule.topic, combined_aliases)
 
         if not claims:
-            # v4.0: Still run workflow validation even without claims
-            wf_conflicts, step_violations = self._run_workflow_validation(llm_output, rule)
-            self.last_step_violations = step_violations
-            conflicts.extend(wf_conflicts)
+            # v4.3: Workflow validation sadece workflow rule'larında çalışsın
+            # (ancak keyword matching ile tetiklenen factual rule'larda çalışmasın)
+            if hasattr(rule, 'steps') and rule.steps:
+                wf_conflicts, step_violations = self._run_workflow_validation(llm_output, rule)
+                self.last_step_violations = step_violations
+                conflicts.extend(wf_conflicts)
+            else:
+                self.last_step_violations = []
             t1 = time.perf_counter()
             self._total_latency_us += (t1 - t0) * 1_000_000
             return conflicts
@@ -768,8 +772,10 @@ class ConflictDetector:
         t1 = time.perf_counter()
         self._total_latency_us += (t1 - t0) * 1_000_000
 
-        # v4.0: Workflow validation (runs even without claims for workflow rules)
-        wf_conflicts, step_violations = self._run_workflow_validation(llm_output, rule)
+        # v4.3: Workflow validation — sadece workflow rule'larında
+        wf_conflicts, step_violations = [], []
+        if hasattr(rule, 'steps') and rule.steps:
+            wf_conflicts, step_violations = self._run_workflow_validation(llm_output, rule)
         conflicts.extend(wf_conflicts)
         self.last_step_violations = step_violations
 
