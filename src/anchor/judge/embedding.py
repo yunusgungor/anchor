@@ -28,6 +28,9 @@ _model_name = None
 def load_model(model_name: str = "paraphrase-multilingual-MiniLM-L12-v2") -> bool:
     """Load sentence-transformer model (lazy, cached).
 
+    Performs PyTorch warmup to move JIT/compilation overhead
+    from first query to load time.
+
     Args:
         model_name: HuggingFace model name or path.
 
@@ -39,7 +42,6 @@ def load_model(model_name: str = "paraphrase-multilingual-MiniLM-L12-v2") -> boo
         return True
 
     with _model_lock:
-        # Double-check after acquiring lock
         if _model is not None and _model_name == model_name:
             return True
         try:
@@ -47,8 +49,14 @@ def load_model(model_name: str = "paraphrase-multilingual-MiniLM-L12-v2") -> boo
             logger.info("Loading embedding model: %s", model_name)
             _model = SentenceTransformer(model_name)
             _model_name = model_name
-            logger.info("Embedding model loaded: %s (%d dim)",
-                        model_name, _model.get_sentence_embedding_dimension())
+            dim = _model.get_sentence_embedding_dimension()
+            logger.info("Embedding model loaded: %s (%d dim)", model_name, dim)
+
+            # PyTorch warmup: dummy inference to trigger JIT compilation
+            # and memory allocation before first real query
+            _warmup_model()
+            logger.info("Embedding model warmup complete")
+
             return True
         except ImportError:
             logger.warning("sentence-transformers not installed. "
@@ -57,6 +65,27 @@ def load_model(model_name: str = "paraphrase-multilingual-MiniLM-L12-v2") -> boo
         except Exception as e:
             logger.error("Failed to load embedding model %s: %s", model_name, e)
             return False
+
+
+def _warmup_model():
+    """Run dummy inference to trigger PyTorch JIT + memory allocation.
+
+    Without warmup, the first real query pays 1-2s overhead for:
+      - JIT kernel compilation
+      - CuBLAS/CuDNN initialization (on GPU)
+      - PyTorch memory pool allocation
+      - Tokenizer cache fill
+    """
+    if _model is None:
+        return
+    try:
+        _model.encode("warmup", normalize_embeddings=True)
+        _model.encode(
+            ["warmup pair one", "warmup pair two"],
+            normalize_embeddings=True,
+        )
+    except Exception:
+        pass  # Warmup failure is non-critical
 
 
 def is_available() -> bool:

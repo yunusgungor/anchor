@@ -7,7 +7,7 @@ Core tanımlar ve tipler.
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 
 class Severity(Enum):
@@ -39,6 +39,8 @@ class Rule:
     priority: int = 5
     strictness: float = 0.8
     enriched_facts: list[str] = field(default_factory=list)  # build-time paraphrase'lar
+    fact_embeddings: Any = None  # build-time pre-computed embeddings (np.ndarray)
+    fact_texts: list[str] = field(default_factory=list)  # corresponding fact texts
 
     def __hash__(self):
         return hash(self.id)

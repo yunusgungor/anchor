@@ -157,6 +157,39 @@ class SecureBinaryIndexManager:
         """
         t0 = time.perf_counter()
         
+        # NPZ verisi (numpy native — embedding'ler burada saklanır)
+        npz_data = {}
+        
+        if semantic._vocab and semantic._doc_vectors:
+            vocab_keys = np.array(list(semantic._vocab.keys()), dtype=object)
+            vocab_indices = np.array(list(semantic._vocab.values()), dtype=np.int32)
+            idf_array = np.array(
+                [semantic._idf.get(k, 1.0) for k in semantic._vocab.keys()],
+                dtype=np.float32,
+            )
+            doc_ids = []
+            doc_vecs = []
+            for rid, vec in semantic._doc_vectors.items():
+                doc_ids.append(rid)
+                doc_vecs.append(vec)
+            npz_data["vocab"] = vocab_keys
+            npz_data["vocab_indices"] = vocab_indices
+            npz_data["idf"] = idf_array
+            npz_data["doc_ids"] = np.array(doc_ids, dtype=object)
+            npz_data["doc_vecs"] = np.array(doc_vecs, dtype=np.float32)
+        
+        # Pre-computed fact embedding'leri NPZ'de sakla (numpy native)
+        # JSON list olur, numpy array kaybolur
+        fact_emb_keys = set()
+        for meta in rule_metadata:
+            emb = meta.pop("fact_embeddings", None)  # JSON'dan çıkar → NPZ'ye koy
+            if emb is not None:
+                rid = meta.get("id", "unknown")
+                key = f"emb_{rid}"
+                npz_data[key] = emb  # float16 native
+                fact_emb_keys.add(key)
+                logger.log(5, "Saved fact embeddings for %s to NPZ key=%s", rid, key)
+        
         # 1. JSON: metadata + bloom + shard_map
         json_data = {
             "_version": FORMAT_VERSION,
@@ -174,32 +207,13 @@ class SecureBinaryIndexManager:
         with open(self.index_path, "w", encoding="utf-8") as f:
             json.dump(json_data, f, cls=JSONEncoder, ensure_ascii=False, indent=2)
         
-        # 2. NPZ: TF-IDF vectors
-        if semantic._vocab and semantic._doc_vectors:
-            vocab_keys = np.array(list(semantic._vocab.keys()), dtype=object)
-            vocab_indices = np.array(list(semantic._vocab.values()), dtype=np.int32)
-            idf_array = np.array(
-                [semantic._idf.get(k, 1.0) for k in semantic._vocab.keys()],
-                dtype=np.float32,
-            )
-            
-            doc_ids = []
-            doc_vecs = []
-            for rid, vec in semantic._doc_vectors.items():
-                doc_ids.append(rid)
-                doc_vecs.append(vec)
-            
-            np.savez(
-                self.npz_path,
-                vocab=vocab_keys,
-                vocab_indices=vocab_indices,
-                idf=idf_array,
-                doc_ids=np.array(doc_ids, dtype=object),
-                doc_vecs=np.array(doc_vecs, dtype=np.float32),
-            )
+        # 2. NPZ: TF-IDF vectors + fact embeddings
+        if npz_data:
+            np.savez(self.npz_path, **npz_data)
         
         elapsed = (time.perf_counter() - t0) * 1000
-        logger.info("Binary index saved: %s + %s (%.1fms)", self.index_path, self.npz_path, elapsed)
+        logger.info("Binary index saved: %s + %s (%.1fms, %d emb keys)",
+                     self.index_path, self.npz_path, elapsed, len(fact_emb_keys))
     
     def load(self) -> Optional[dict]:
         """
@@ -240,21 +254,32 @@ class SecureBinaryIndexManager:
             if self.npz_path.exists():
                 npz = np.load(self.npz_path, allow_pickle=True)
                 
-                vocab_keys = npz["vocab"]
-                vocab_indices = npz["vocab_indices"]
-                semantic._vocab = {str(k): int(v) for k, v in zip(vocab_keys, vocab_indices)}
+                # Check if NPZ has TF-IDF vocab
+                if "vocab" in npz:
+                    vocab_keys = npz["vocab"]
+                    vocab_indices = npz["vocab_indices"]
+                    semantic._vocab = {str(k): int(v) for k, v in zip(vocab_keys, vocab_indices)}
+                    
+                    idf_vals = npz["idf"]
+                    for k, v in zip(vocab_keys, idf_vals):
+                        semantic._idf[str(k)] = float(v)
+                    
+                    doc_ids = npz["doc_ids"]
+                    doc_vecs = npz["doc_vecs"]
+                    for rid, vec in zip(doc_ids, doc_vecs):
+                        semantic._doc_vectors[str(rid)] = vec.astype(np.float32)
+                    
+                    semantic._total_docs = len(doc_ids)
+                    semantic._rebuild_matrix()
                 
-                idf_vals = npz["idf"]
-                for k, v in zip(vocab_keys, idf_vals):
-                    semantic._idf[str(k)] = float(v)
-                
-                doc_ids = npz["doc_ids"]
-                doc_vecs = npz["doc_vecs"]
-                for rid, vec in zip(doc_ids, doc_vecs):
-                    semantic._doc_vectors[str(rid)] = vec.astype(np.float32)
-                
-                semantic._total_docs = len(doc_ids)
-                semantic._rebuild_matrix()
+                # Reconstruct pre-computed fact embeddings from NPZ
+                rule_metadata = data.get("rule_metadata", [])
+                for meta in rule_metadata:
+                    rid = meta.get("id", "")
+                    key = f"emb_{rid}"
+                    if key in npz:
+                        meta["fact_embeddings"] = npz[key]  # float16
+                        logger.log(5, "Loaded fact embeddings for %s from NPZ", rid)
             
             elapsed = (time.perf_counter() - t0) * 1000
             print(f"📂 Binary index loaded: {elapsed:.1f}ms (JSON format)")
@@ -263,7 +288,7 @@ class SecureBinaryIndexManager:
                 "shard_map": data["shard_map"],
                 "bloom": bloom,
                 "semantic": semantic,
-                "rule_metadata": data.get("rule_metadata", []),
+                "rule_metadata": rule_metadata,
             }
         
         except Exception as e:

@@ -16,6 +16,8 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
+import numpy as np
+
 from anchor import Rule, Topic
 from anchor.organize.domain_shard import ShardRouter
 from anchor.organize.bloom_index import BloomIndex
@@ -44,13 +46,16 @@ class ScalableRuleStore:
     """
     
     def __init__(self, rules_path: str, index_path: Optional[str] = None,
-                 enricher: Optional["RuleEnricher"] = None):
+                 enricher: Optional["RuleEnricher"] = None,
+                 use_embedding: bool = False):
         self.path = Path(rules_path)
+        self._index_path = index_path
+        self._enricher = enricher
+        self._use_embedding = use_embedding
         self._router = ShardRouter(rules_path)
         self._bloom = BloomIndex(expected_items=10_000, false_positive_rate=0.01)
         self._semantic = SemanticIndex(max_features=2000)
         self._binman = BinaryIndexManager(rules_path, index_path)
-        self._enricher = enricher
         
         # Hot cache (LRU)
         self._hot_cache: OrderedDict[str, Rule] = OrderedDict()
@@ -125,7 +130,7 @@ class ScalableRuleStore:
                     "strictness": strictness,
                 }
                 
-                # Build-time enrichment: facts'in paraphrase'larını üret
+                # Build-time enrichment (Phase 3)
                 if self._enricher is not None:
                     try:
                         text = fpath.read_text(encoding="utf-8")
@@ -136,6 +141,37 @@ class ScalableRuleStore:
                                          rule_id, len(enriched) // 3, len(enriched))
                     except Exception as e:
                         logger.warning("Enrichment failed for %s: %s", rule_id, e)
+                
+                # Pre-compute fact embeddings (Phase 1 optimization)
+                # Burada hesaplanan embedding'ler binary index'e kaydedilir
+                # Runtime'da encode_batch() çağrısına gerek kalmaz
+                if self._use_embedding:
+                    text = fpath.read_text(encoding="utf-8")
+                    from anchor.detect import ConflictDetector
+                    det = ConflictDetector()
+                    facts = det._extract_facts(text)
+                    if facts:
+                        try:
+                            from anchor.judge.embedding import load_model, encode_batch
+                            loaded = load_model()
+                            if not loaded:
+                                logger.debug("Embedding model not available for %s "
+                                             "(sentence-transformers not installed?)",
+                                             rule_id)
+                            else:
+                                vecs = encode_batch(facts)
+                                if vecs is not None:
+                                    meta["fact_embeddings"] = vecs.astype(np.float16)
+                                    meta["fact_texts"] = facts
+                                    logger.debug("Pre-computed %d fact embeddings for %s",
+                                                 len(facts), rule_id)
+                                else:
+                                    logger.debug("encode_batch returned None for %s", rule_id)
+                        except Exception as e:
+                            logger.debug("Embedding pre-compute failed for %s: %s: %s",
+                                         rule_id, type(e).__name__, e)
+                    else:
+                        logger.log(5, "No facts extracted for %s", rule_id)
                 
                 self._rule_meta[rule_id] = meta
                 rule_metadata.append(meta)
@@ -269,18 +305,22 @@ class ScalableRuleStore:
         return rule
     
     def _lazy_load(self, rule_id: str) -> Optional[Rule]:
-        """Diskten bir rule'u parse et, enriched facts varsa ekle."""
-        # rule_id → dosya yolunu bul
+        """Diskten bir rule'u parse et, enriched facts + embeddings varsa ekle."""
         for fpath in self.path.rglob(f"{rule_id}.md"):
             if fpath.is_file():
                 try:
                     from anchor import Rule
                     rule = Rule.from_file(fpath)
-                    # Enriched facts varsa rule objesine ekle
+                    # Meta'dan enriched facts ve pre-computed embeddings'leri ekle
                     meta = self._rule_meta.get(rule_id, {})
                     enriched = meta.get("enriched_facts", [])
                     if enriched:
                         rule.enriched_facts = enriched
+                    # Pre-computed fact embeddings
+                    emb = meta.get("fact_embeddings", None)
+                    if emb is not None:
+                        rule.fact_embeddings = emb
+                        rule.fact_texts = meta.get("fact_texts", [])
                     return rule
                 except Exception:
                     pass

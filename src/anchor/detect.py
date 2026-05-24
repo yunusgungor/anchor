@@ -18,6 +18,8 @@ from typing import Optional, TYPE_CHECKING
 
 from anchor import Conflict, Severity
 
+import numpy as np
+
 if TYPE_CHECKING:
     from anchor.judge.llm_judge import JudgeConfig
 
@@ -215,6 +217,76 @@ class FactMatcher:
         self.use_embedding = use_embedding
         self._total_calls = 0
         self._total_latency_us = 0
+        
+        # Embedding cache (build-time pre-computed + runtime claim cache)
+        self._fact_texts: list[str] = []
+        self._fact_embeddings: Optional[np.ndarray] = None
+        self._claim_cache: dict[str, np.ndarray] = {}
+        self._claim_cache_max = 10
+
+    def cache_facts(self, facts: Optional[list[str]] = None,
+                    precomputed: Optional[np.ndarray] = None,
+                    fact_texts: Optional[list[str]] = None):
+        """Cache fact embeddings (build-time pre-computed or runtime batch).
+        
+        Two modes:
+          1. Build-time (fast): pass precomputed (float16) + fact_texts
+          2. Runtime (fallback): pass facts list to batch-encode
+        
+        Args:
+            facts: Runtime mode — fact strings to batch-encode.
+            precomputed: Build-time mode — pre-computed numpy array (float16 OK).
+            fact_texts: Build-time mode — corresponding fact texts.
+        """
+        if not self.use_embedding:
+            return
+        
+        if precomputed is not None and fact_texts is not None:
+            self._fact_texts = list(fact_texts)
+            if precomputed.dtype == np.float16:
+                precomputed = precomputed.astype(np.float32)
+            self._fact_embeddings = precomputed
+            logger.log(5, "Loaded %d pre-computed fact embeddings", len(fact_texts))
+            return
+        
+        if facts:
+            from anchor.judge.embedding import encode_batch
+            vecs = encode_batch(facts)
+            if vecs is not None:
+                self._fact_texts = list(facts)
+                self._fact_embeddings = vecs
+                logger.log(5, "Cached %d fact embeddings (%s)", len(facts), vecs.shape)
+
+    def _get_claim_embedding(self, claim: str) -> Optional[np.ndarray]:
+        """Get (possibly cached) claim embedding."""
+        if claim in self._claim_cache:
+            return self._claim_cache[claim]
+        from anchor.judge.embedding import encode
+        vec = encode(claim)
+        if vec is not None:
+            if len(self._claim_cache) >= self._claim_cache_max:
+                self._claim_cache.pop(next(iter(self._claim_cache)))
+            self._claim_cache[claim] = vec
+        return vec
+
+    def _batch_embedding_distance(self, claim: str, fact: str) -> Optional[float]:
+        """Compute embedding distance using cached fact embeddings (~1µs)."""
+        if self._fact_embeddings is None or not self._fact_texts:
+            return None
+        try:
+            idx = self._fact_texts.index(fact)
+        except ValueError:
+            return None
+        claim_vec = self._get_claim_embedding(claim)
+        if claim_vec is None:
+            return None
+        sim = float(np.dot(self._fact_embeddings[idx], claim_vec))
+        return 1.0 - max(-1.0, min(1.0, sim))
+
+    def clear_cache(self):
+        self._fact_texts = []
+        self._fact_embeddings = None
+        self._claim_cache.clear()
 
     def match(self, claim: str, fact: str) -> MatchResult:
         t0 = time.perf_counter()
@@ -227,13 +299,23 @@ class FactMatcher:
         # Embedding distance (if available)
         d_emb = -1.0
         if self.use_embedding:
-            try:
-                from anchor.judge.embedding import semantic_distance
-                d = semantic_distance(claim, fact)
-                if d is not None:
-                    d_emb = d
-            except Exception:
+            # Prefer batch cache (~1µs) over individual encoding (>100ms)
+            d = self._batch_embedding_distance(claim, fact)
+            if d is None:
+                # Fallback: cache claim encoding for subsequent calls
+                _claim_vec = self._get_claim_embedding(claim)
+                try:
+                    from anchor.judge.embedding import semantic_distance
+                    d = semantic_distance(claim, fact)
+                except Exception:
+                    d = None
+            elif d == 2.0:
+                # 2.0 means orthogonal/opposite vectors (max distance)
+                # Still valid, just not similar
                 pass
+            
+            if d is not None:
+                d_emb = d
         
         # Combined distance: embedding-aware if available
         if d_emb >= 0:
@@ -276,17 +358,22 @@ class FactMatcher:
         return 1.0 - sm.ratio()
 
     def _compute_semantic_distance(self, claim: str, fact: str) -> float:
-        """Semantic distance: embedding cosine similarity veya Jaccard fallback."""
+        """Semantic distance: Jaccard (or embedding when use_embedding=False).
+        
+        When use_embedding=True, embedding is computed separately in 
+        the 'Embedding distance' block of match() — avoid double compute.
+        """
         if self.use_embedding:
-            try:
-                from anchor.judge.embedding import semantic_distance
-                d = semantic_distance(claim, fact)
-                if d is not None:
-                    return d
-            except Exception:
-                pass
-            # Fallback to Jaccard on error
-        # Jaccard distance (word overlap)
+            # Embedding computed in match() embedding block — use Jaccard here
+            return self._compute_jaccard_distance(claim, fact)
+        # Without embedding: try semantic_distance, fallback to Jaccard
+        try:
+            from anchor.judge.embedding import semantic_distance
+            d = semantic_distance(claim, fact)
+            if d is not None:
+                return d
+        except Exception:
+            pass
         return self._compute_jaccard_distance(claim, fact)
 
     def _compute_jaccard_distance(self, claim: str, fact: str) -> float:
@@ -441,6 +528,25 @@ class ConflictDetector:
                 if ef.lower() not in original_set:
                     facts.append(ef)
                     original_set.add(ef.lower())
+        
+        # 2c. Pre-computed fact embeddings (build-time, ~1µs)
+        #     NOT: Pre-computed fact_texts kullanılıyorsa, onların
+        #     embedding'leri de NPZ'de mevcut → batch cache her zaman HIT.
+        if self.use_embedding:
+            precomputed = getattr(rule, "fact_embeddings", None)
+            fact_texts = getattr(rule, "fact_texts", None)
+            if precomputed is not None and fact_texts is not None:
+                self.matcher.cache_facts(precomputed=precomputed, fact_texts=fact_texts)
+                # Pre-computed fact'ler variablesa, runtime fact list'ini de
+                # pre-computed list'le değiştir ki cache her zaman HIT olsun.
+                # Sadece enriched facts eklenir (duplicate önlenir).
+                facts = list(fact_texts)
+                original_set = set(f.lower() for f in facts)
+                for ef in enriched:
+                    if ef.lower() not in original_set:
+                        facts.append(ef)
+                        original_set.add(ef.lower())
+                known_wrong = self._extract_known_wrong_claims(rule.content)
 
         # 3. Her claim'i kontrol et
         for claim in claims:
@@ -592,6 +698,35 @@ class ConflictDetector:
         while i < len(lines):
             line = lines[i].strip()
             
+            # === SKIP: YAML frontmatter ===
+            if line == '---':
+                # Tüm frontmatter'ı atla (sonraki ---'e kadar)
+                i += 1
+                while i < len(lines) and lines[i].strip() != '---':
+                    i += 1
+                # closing ---'ü de atla
+                i += 1
+                continue
+            
+            # === SKIP: Pipe table header/separator ===
+            if line.startswith('|') and ('---' in line or not any(c.isalpha() for c in line)):
+                i += 1
+                continue
+            
+            # === SKIP: Non-fact lines ===
+            if len(line) < 8:  # çok kısa satırlar (separator, ---, vs.)
+                i += 1
+                continue
+            if line.startswith('#'):  # markdown heading
+                i += 1
+                continue
+            if line.startswith('```'):  # code block
+                i += 1
+                while i < len(lines) and not lines[i].strip().startswith('```'):
+                    i += 1
+                i += 1
+                continue
+            
             # Liste öğeleri: - veya * ile başlayan
             if line.startswith('- ') or line.startswith('* '):
                 fact = line[2:].strip()
@@ -611,7 +746,16 @@ class ConflictDetector:
             
             i += 1
         
-        return facts if facts else [content.strip()]
+        # Remove duplicates (preserve order)
+        seen = set()
+        unique_facts = []
+        for f in facts:
+            fl = f.lower().strip()
+            if fl not in seen:
+                seen.add(fl)
+                unique_facts.append(f)
+        
+        return unique_facts if unique_facts else [content.strip()]
     
     def _extract_known_wrong_claims(self, content: str) -> list[tuple[str, str]]:
         """

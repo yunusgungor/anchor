@@ -51,7 +51,8 @@ class AnchorEngine:
                  use_embedding: bool = False,
                  judge_config: Optional["JudgeConfig"] = None,
                  enricher: Optional["RuleEnricher"] = None):
-        self.store = ScalableRuleStore(rules_path, index_path, enricher=enricher)
+        self.store = ScalableRuleStore(rules_path, index_path, enricher=enricher,
+                                        use_embedding=use_embedding)
         self.extractor = ClaimExtractor()
         self.detector = ConflictDetector(extractor=self.extractor,
                                           use_embedding=use_embedding,
