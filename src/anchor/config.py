@@ -39,12 +39,21 @@ FACT_NEAR_DUPE_THRESHOLD: Final[float] = 0.85  # Near-duplicate dedup eşiği
 # ============================================================
 TOPIC_OUTPUT_MIN_LEN: Final[int] = 10       # Output-based topic extraction için minimum output uzunluğu
 TOPIC_ALIAS_MIN_LEN: Final[int] = 4         # Topic alias'ları için minimum uzunluk
+TOPIC_MAX_OUTPUT_RULES: Final[int] = 3      # Output-based discovery max rule sayısı
+TOPIC_OUTPUT_KEYWORD_DENSITY_THRESHOLD: Final[float] = 0.15  # matched_keywords / total_keywords
+TOPIC_DOMAIN_MAX_RULES: Final[int] = 2      # aynı domain'den en fazla bu kadar rule
 
 # ============================================================
 # WORKFLOW VALIDATION
 # ============================================================
 WF_STEP_CONFIDENCE: Final[float] = 0.6      # Step extraction minimum confidence
 WF_ORDER_VIOLATION_PENALTY: Final[float] = 0.3  # Sıra ihlali ceza puanı
+WF_ALIAS_CONFIDENCE: Final[float] = 0.6     # Step alias match confidence
+WF_TERM_MAP_CONFIDENCE: Final[float] = 0.62 # TR→EN term map match confidence
+WF_SEMANTIC_CONFIDENCE_MIN: Final[float] = 0.58  # Semantic step match minimum confidence
+WF_SEMANTIC_SENTENCE_MIN_LEN: Final[int] = 12    # Semantic match için min cümle uzunluğu
+WF_CHECK_FUZZY_MAX_DISTANCE: Final[int] = 2      # Levenshtein max distance
+WF_COMPOUND_CHECK_MIN_WORDS: Final[int] = 2      # Compound check için min kelime sayısı
 
 # ============================================================
 # CONFLICT DETECTION
@@ -238,6 +247,35 @@ DOMAIN_SYNONYMS: Final[list[tuple[str, list[str]]]] = [
     ("code review", ["pr review", "peer review", "code review process"]),
     ("branching", ["git branch", "branch strategy", "branching model"]),
 ]
+
+# ============================================================
+# RULE DOMAINS (output-based clustering)
+# ============================================================
+RULE_DOMAIN_MAP: Final[dict[str, str]] = {
+    'incident-response': 'workflow-ops',
+    'release-process': 'workflow-ops',
+    'bug-fix': 'workflow-dev',
+    'code-review': 'workflow-dev',
+    'tdd-cycle': 'workflow-dev',
+    'story-implementation': 'workflow-dev',
+    'architecture-decision': 'workflow-arch',
+    'clean-architecture': 'architecture',
+    'solid-principles': 'architecture',
+    'design-patterns': 'architecture',
+    'pipeline-standards': 'delivery',
+    'automated-testing': 'delivery',
+    'adr': 'documentation',
+    'retrospectives': 'process',
+    'agile-and-refinement': 'process',
+    'branching-and-commits': 'git',
+    'secure-coding': 'security',
+    'test-pyramid': 'testing',
+    'red-green-refactor': 'testing',
+    'mocking-guide': 'testing',
+    'naming-and-structure': 'clean-code',
+    'function-design': 'clean-code',
+    'error-handling': 'clean-code',
+}
 
 # ============================================================
 # DIAGRAM CONSTANTS

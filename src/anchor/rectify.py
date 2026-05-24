@@ -33,6 +33,11 @@ class Patch:
     strategy: PatchStrategy
     applied: bool = False
 
+    @property
+    def edit_distance(self) -> int:
+        """Basit karakter bazlı uzaklık tahmini."""
+        return abs(len(self.replacement) - len(self.original))
+
 
 class PatchEngine:
     """

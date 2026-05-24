@@ -43,6 +43,7 @@ class ParsedRule:
     strictness: float = 0.8
     source_format: str = ""  # "md_frontmatter", "plain_text", "json", "yaml", "csv"
     steps: list = field(default_factory=list)  # v4.0: workflow adımları
+    domain: str = ""
 
 
 class RuleParser:
@@ -55,7 +56,14 @@ class RuleParser:
     def parse_file(self, fpath: Path) -> ParsedRule:
         """Dosyayı oku, formatını tespit et, parse et."""
         text = fpath.read_text(encoding="utf-8")
-        return self.parse_text(text, filename=fpath.name)
+        parsed = self.parse_text(text, filename=fpath.name)
+        try:
+            rel_parent = Path(fpath).parent.name
+            if rel_parent and rel_parent != ".":
+                parsed.domain = rel_parent
+        except Exception:
+            pass
+        return parsed
     
     def parse_text(self, text: str, filename: str) -> ParsedRule:
         """Metni parse et — formatı otomatik tespit."""
@@ -91,9 +99,9 @@ class RuleParser:
                 priority=data.get("priority", 5),
                 strictness=data.get("strictness", 0.8),
                 source_format="json",
+                domain=data.get("domain", ""),
             )
         
-        # JSON array veya basit string
         return ParsedRule(
             id=rule_id,
             topic=rule_id,
@@ -117,11 +125,11 @@ class RuleParser:
                     priority=data.get("priority", 5),
                     strictness=data.get("strictness", 0.8),
                     source_format="yaml",
+                    domain=data.get("domain", ""),
                 )
         except ImportError:
             pass
         
-        # YAML yoksa veya parse edilemezse düz metin olarak al
         return ParsedRule(
             id=rule_id,
             topic=rule_id,
@@ -142,7 +150,6 @@ class RuleParser:
         rows = list(reader)
         
         if rows:
-            # İlk satır topic, diğerleri content olarak al
             first = rows[0]
             topic = first.get("topic", rule_id)
             content = "\n".join(
@@ -154,6 +161,7 @@ class RuleParser:
                 topic=topic,
                 content=content,
                 source_format="csv",
+                domain=first.get("domain", ""),
             )
         
         return ParsedRule(id=rule_id, topic=rule_id, content=text, source_format="csv")
@@ -168,12 +176,10 @@ class RuleParser:
         """
         from anchor.parser.frontmatter import parse_frontmatter
         
-        # YAML frontmatter kontrolü (utility kullan)
         fm = parse_frontmatter(text)
         if fm:
             return self._parse_frontmatter(text, rule_id, fm)
         
-        # Düz metin — akıllı extraction
         return self._parse_plain(text, rule_id)
     
     def _parse_frontmatter(self, text: str, rule_id: str, fm: dict | None = None) -> ParsedRule:
@@ -188,7 +194,6 @@ class RuleParser:
         
         # Steps from frontmatter
         steps = fm.get("steps", [])
-        # Validate and normalize steps
         from anchor import Step
         normalized = []
         if isinstance(steps, list):
@@ -201,6 +206,7 @@ class RuleParser:
                         depends_on=s.get("depends_on", []),
                         options=s.get("options", []),
                         checks=s.get("checks", []),
+                        aliases=s.get("aliases", []),
                     ))
         
         return ParsedRule(
@@ -213,6 +219,7 @@ class RuleParser:
             strictness=meta["strictness"],
             source_format="md_frontmatter",
             steps=normalized,
+            domain=fm.get("domain", ""),
         )
     
     def _parse_plain(self, text: str, rule_id: str) -> ParsedRule:
@@ -224,11 +231,9 @@ class RuleParser:
         """
         lines = text.strip().split("\n")
         
-        # İlk satır başlık mı?
         topic = rule_id
         if lines:
             first = lines[0].strip()
-            # Başlık kalıpları: # Başlık, **Başlık**, Başlık:
             if first.startswith("#"):
                 topic = first.lstrip("#").strip()
             elif first.startswith("**") and first.endswith("**"):
@@ -236,32 +241,24 @@ class RuleParser:
             elif len(first) < 80 and not first.startswith(("-", "*", ">")):
                 topic = first
         
-        # Alias tespiti: sadece gerçek alias'ları al
-        # Parantez içi: (GoF), (DDD), (Neural Processor X1), (Single Responsibility)
         aliases = []
-        # Short uppercase acronyms: (GoF), (DDD), (ABC)
         for match in re.finditer(r'\(([A-Z]{2,6})\)', text):
             alias = match.group(1).strip()
             if alias and alias not in aliases:
                 aliases.append(alias)
-        # Title-case phrases: (Neural Processor X1), (Single Responsibility)
         for match in re.finditer(r'\(([A-Z][a-zA-Z0-9\s_-]{2,48})\)', text):
             alias = match.group(1).strip()
             if (alias and alias not in aliases 
                 and len(alias) >= 3 and len(alias) <= 40
-                and not any(w in alias.lower() for w in ['e.g', 'i.e', 'aka', 'etc'])):  # Skip examples
+                and not any(w in alias.lower() for w in ['e.g', 'i.e', 'aka', 'etc'])):
                 aliases.append(alias)
-        # also known as / aka
         for pattern in [r'also known as[::\s]+([^,\n]+)', r'aka[::\s]+([^,\n]+)']:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 alias = match.group(1).strip().strip('"\'')
                 if alias and len(alias) > 2 and alias not in aliases:
                     aliases.append(alias)
         
-        # Tags tespiti: #hashtag veya [tag] kalıpları
-        tags = []
-        tag_pattern = r"#([a-zA-Z0-9_]+)"
-        tags = list(set(re.findall(tag_pattern, text)))
+        tags = list(set(re.findall(r"#([a-zA-Z0-9_]+)", text)))
         
         return ParsedRule(
             id=rule_id,

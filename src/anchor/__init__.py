@@ -57,6 +57,7 @@ class Step:
     depends_on: list[str] = field(default_factory=list)
     options: list[str] = field(default_factory=list)
     checks: list[str] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)  # v4.4.2: alternatif adlar (örn: İngilizce)
 
 
 @dataclass

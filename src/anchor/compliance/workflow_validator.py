@@ -10,13 +10,128 @@ Components:
 
 import logging
 import re
+from difflib import SequenceMatcher
 from typing import Optional
 
 from anchor import (
     Conflict, Step, StepViolation, Severity, ViolationType,
 )
+from anchor.config import (
+    WF_ALIAS_CONFIDENCE,
+    WF_TERM_MAP_CONFIDENCE,
+    WF_SEMANTIC_CONFIDENCE_MIN,
+    WF_SEMANTIC_SENTENCE_MIN_LEN,
+    WF_CHECK_FUZZY_MAX_DISTANCE,
+    WF_COMPOUND_CHECK_MIN_WORDS,
+)
 
 logger = logging.getLogger(__name__)
+
+
+STEP_TERM_MAP: dict[str, list[str]] = {
+    "pr'yi incele": ['review pr', 'review pull request', 'examine diff', 'pull request review'],
+    'iş mantığı ve doğruluk kontrolü': ['business logic', 'correctness', 'edge case review', 'boundary checks'],
+    'kod kalitesi ve standartlar': ['code quality', 'style', 'naming', 'complexity', 'solid'],
+    'güvenlik taraması': ['security review', 'security scan', 'auth review', 'xss', 'injection'],
+    'test kapsamı doğrulama': ['test coverage', 'coverage review', 'tests checked', 'assertions reviewed'],
+    'onayla veya değişiklik iste': ['approve', 'request changes', 'lgtm', 'commented changes'],
+    'kök neden analizi': ['root cause', '5 whys', 'traceback analysis'],
+    'postmortem yaz ve önlem al': ['postmortem', 'blameless retro', 'action items', 'prevent recurrence'],
+    'kırmızı: başarısız test yaz': ['write failing test', 'red phase', 'failing spec'],
+    'yeşil: geçmesi için minimal kod yaz': ['minimal code', 'green phase', 'make test pass'],
+    'refactor': ['refactor', 'eliminate duplication', 'simplify design', 'improve structure'],
+    "story'i anla": ['understand story', 'acceptance criteria', 'definition of done'],
+    'test planı oluştur': ['test plan', 'test strategy', 'scenarios', 'edge cases'],
+    'pull request oluştur': ['open pr', 'create pr', 'submit pull request'],
+    'versiyon numarasını güncelle': ['version bump', 'semver', 'update version'],
+    'git tag oluştur': ['git tag', 'annotated tag', 'signed tag'],
+    'production dağıtımı': ['production deploy', 'deploy to prod', 'canary rollout'],
+    'ihlali tespit et ve bildir': ['detect incident', 'alert fired', 'incident reported'],
+    'etkiyi ve şiddeti değerlendir': ['assess severity', 'sev1', 'sev2', 'impact analysis'],
+    'etkiyi azalt': ['mitigate', 'rollback', 'hotfix', 'stop the bleed'],
+}
+
+CHECK_ALIAS_MAP: dict[str, list[str]] = {
+    'pull request': ['pr', 'pull request'],
+    'pr': ['pr', 'pull request'],
+    'continuous integration': ['ci', 'continuous integration'],
+    'ci': ['ci', 'continuous integration'],
+    'architecture decision record': ['adr', 'architecture decision record'],
+    'adr': ['adr', 'architecture decision record'],
+    'end-to-end': ['e2e', 'end-to-end', 'smoke'],
+    'e2e': ['e2e', 'end-to-end', 'smoke'],
+    'root cause': ['root cause', 'kök neden'],
+    'kök neden': ['root cause', 'kök neden'],
+    'postmortem': ['postmortem', 'post-mortem', 'retro'],
+    'rollback': ['rollback', 'roll back'],
+    'sign-off': ['sign-off', 'signoff', 'approval'],
+    'release notes': ['release notes', 'changelog'],
+}
+
+
+def _normalize_text(text: str) -> str:
+    return re.sub(r'\s+', ' ', re.sub(r'[^\w\s/-]', ' ', text.lower())).strip()
+
+
+def _levenshtein(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        curr = [i]
+        for j, cb in enumerate(b, 1):
+            ins = curr[j - 1] + 1
+            dele = prev[j] + 1
+            sub = prev[j - 1] + (ca != cb)
+            curr.append(min(ins, dele, sub))
+        prev = curr
+    return prev[-1]
+
+
+def _expand_check_aliases(check: str) -> list[str]:
+    check_lower = check.lower().strip()
+    expanded = [check_lower]
+    for key, vals in CHECK_ALIAS_MAP.items():
+        if check_lower == key or check_lower in vals:
+            for v in vals:
+                if v not in expanded:
+                    expanded.append(v)
+    return expanded
+
+
+def _match_check_variant(output_lower: str, variant: str) -> bool:
+    variant = _normalize_text(variant)
+    if not variant:
+        return False
+    if re.search(r'\b' + re.escape(variant) + r'\b', output_lower):
+        return True
+    if len(variant) >= 3 and re.search(r'\b' + re.escape(variant) + r'[a-z]*\b', output_lower, re.IGNORECASE):
+        return True
+    if ' ' in variant and len(variant.split()) >= WF_COMPOUND_CHECK_MIN_WORDS:
+        parts = [p for p in variant.split() if len(p) >= 2]
+        return all(re.search(r'\b' + re.escape(p) + r'[a-z]*\b', output_lower, re.IGNORECASE) for p in parts)
+    return False
+
+
+def _match_check_fuzzy(output_lower: str, variant: str) -> bool:
+    words = re.findall(r'\b\w+[/-]?\w*\b', output_lower)
+    target = _normalize_text(variant)
+    if not target:
+        return False
+    if ' ' in target:
+        candidates = [' '.join(words[i:i + len(target.split())]) for i in range(max(0, len(words) - len(target.split()) + 1))]
+    else:
+        candidates = words
+    for cand in candidates:
+        if _levenshtein(target, cand) <= WF_CHECK_FUZZY_MAX_DISTANCE:
+            return True
+        if SequenceMatcher(None, target, cand).ratio() >= 0.88:
+            return True
+    return False
 
 
 class StepExtractor:
@@ -31,18 +146,25 @@ class StepExtractor:
         self._total_calls = 0
         self._total_latency_us = 0
 
+    def _semantic_match(self, llm_output: str, candidates: list[str]) -> tuple[float, int]:
+        best_conf = 0.0
+        best_pos = -1
+        if len(llm_output) < WF_SEMANTIC_SENTENCE_MIN_LEN:
+            return best_conf, best_pos
+        sentences = [s.strip() for s in re.split(r'[.!?\n]+', llm_output) if len(s.strip()) >= WF_SEMANTIC_SENTENCE_MIN_LEN]
+        for cand in candidates:
+            cand_norm = _normalize_text(cand)
+            if not cand_norm:
+                continue
+            for sent in sentences:
+                sent_norm = _normalize_text(sent)
+                ratio = SequenceMatcher(None, cand_norm, sent_norm).ratio()
+                if ratio >= WF_SEMANTIC_CONFIDENCE_MIN and ratio > best_conf:
+                    best_conf = ratio
+                    best_pos = llm_output.lower().find(sent.lower())
+        return best_conf, best_pos
+
     def extract(self, llm_output: str, defined_steps: list[Step]) -> list[tuple[str, float, int]]:
-        """
-        Extract executed steps from LLM output.
-
-        Args:
-            llm_output: The raw LLM output text.
-            defined_steps: List of Step definitions from the rule.
-
-        Returns:
-            List of (step_id, match_confidence, position) tuples,
-            sorted by position in the text.
-        """
         import time
         t0 = time.perf_counter()
         self._total_calls += 1
@@ -50,19 +172,16 @@ class StepExtractor:
         if not defined_steps:
             return []
 
-        output_lower = llm_output.lower()
+        output_lower = _normalize_text(llm_output)
         results: list[tuple[str, float, int]] = []
 
         for step in defined_steps:
-            # Try matching by step.id first (e.g., "step-1")
-            id_lower = step.id.lower()
-            # Try matching by step.title
-            title_lower = step.title.lower()
+            id_lower = _normalize_text(step.id)
+            title_lower = _normalize_text(step.title)
 
             best_pos = -1
             best_confidence = 0.0
 
-            # Check step title
             if title_lower in output_lower:
                 pos = output_lower.index(title_lower)
                 confidence = min(1.0, 0.5 + len(title_lower.split()) * 0.15)
@@ -70,19 +189,36 @@ class StepExtractor:
                     best_confidence = confidence
                     best_pos = pos
 
-            # Check step id (weaker signal)
             if id_lower in output_lower and len(id_lower) >= 3:
                 pos = output_lower.index(id_lower)
-                confidence = 0.4  # IDs are weaker match
+                confidence = 0.4
                 if confidence > best_confidence:
                     best_confidence = confidence
                     best_pos = pos
 
-            # Check if step title words appear adjacent or near each other
+            for alias in getattr(step, 'aliases', []) or []:
+                alias_lower = _normalize_text(alias)
+                if alias_lower and alias_lower in output_lower:
+                    pos = output_lower.index(alias_lower)
+                    confidence = WF_ALIAS_CONFIDENCE
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        best_pos = pos
+
+            title_norm = title_lower
+            for key, vals in STEP_TERM_MAP.items():
+                if key in title_norm or title_norm in key:
+                    for variant in vals:
+                        variant_norm = _normalize_text(variant)
+                        if variant_norm and variant_norm in output_lower:
+                            pos = output_lower.index(variant_norm)
+                            confidence = WF_TERM_MAP_CONFIDENCE
+                            if confidence > best_confidence:
+                                best_confidence = confidence
+                                best_pos = pos
+
             if best_confidence < 0.7 and len(title_lower.split()) > 1:
                 words = title_lower.split()
-                # Find first occurrence where most words appear nearby
-                first_word_idx = -1
                 all_found = True
                 positions = []
                 for w in words:
@@ -94,62 +230,50 @@ class StepExtractor:
                         break
                     positions.append(idx)
                 if all_found and len(positions) >= 2:
-                    # Words found but maybe scattered — still a match
-                    avg_pos = sum(positions) / len(positions)
                     span = max(positions) - min(positions)
-                    if span < 100:  # Within reasonable distance
+                    if span < 100:
                         confidence = 0.5 + (0.3 * (1.0 - min(1.0, span / 100.0)))
                         if confidence > best_confidence:
                             best_confidence = confidence
                             best_pos = min(positions)
 
-            # Check step checks keywords (e.g., "OS" in "Windows 11")
-            # Uses smart matching: exact word, prefix match (3+ chars), and common aliases
             if best_confidence < 0.5 and step.checks:
                 check_words_found = 0
-                check_matches = []
                 for check in step.checks:
-                    check_lower = check.lower().strip()
-                    # 1. Exact word boundary match: \bOS\b
-                    if re.search(r'\b' + re.escape(check_lower) + r'\b', output_lower):
-                        check_words_found += 1
-                        check_matches.append(check)
-                    # 2. Word-start match: "Windows" contains "win" prefix
-                    elif len(check_lower) >= 3 and re.search(
-                            r'\b' + re.escape(check_lower) + r'[a-z]*\b',
-                            output_lower, re.IGNORECASE):
-                        check_words_found += 0.5  # half-weight for prefix
-                        check_matches.append(check)
+                    matched = False
+                    for variant in _expand_check_aliases(check):
+                        if _match_check_variant(output_lower, variant):
+                            matched = True
+                            check_words_found += 1
+                            break
+                        if _match_check_fuzzy(output_lower, variant):
+                            matched = True
+                            check_words_found += 0.75
+                            break
+                    if matched:
+                        continue
                 if check_words_found > 0:
-                    # Weak match: at least one check keyword found
                     confidence = 0.3 + (0.15 * min(1.0, check_words_found))
                     if confidence > best_confidence:
-                        # Find earliest position of any matching check
-                        positions = []
-                        for c in step.checks:
-                            cl = c.lower()
-                            # Try exact match first, then prefix
-                            m = re.search(r'\b' + re.escape(cl) + r'\b', output_lower)
-                            if not m and len(cl) >= 3:
-                                m = re.search(
-                                    r'\b' + re.escape(cl) + r'[a-z]*\b',
-                                    output_lower, re.IGNORECASE
-                                )
-                            if m:
-                                positions.append(m.start())
-                        if positions:
-                            best_pos = min(positions)
-                            best_confidence = confidence
+                        best_confidence = confidence
+                        best_pos = 0 if best_pos < 0 else best_pos
+
+            if best_confidence < WF_SEMANTIC_CONFIDENCE_MIN:
+                semantic_candidates = [step.title] + list(getattr(step, 'aliases', []) or [])
+                for key, vals in STEP_TERM_MAP.items():
+                    if key in title_norm or title_norm in key:
+                        semantic_candidates.extend(vals)
+                sem_conf, sem_pos = self._semantic_match(llm_output, semantic_candidates)
+                if sem_conf > best_confidence:
+                    best_confidence = sem_conf
+                    best_pos = sem_pos
 
             if best_confidence > 0.0:
                 results.append((step.id, best_confidence, best_pos))
 
-        # Sort by position in text
         results.sort(key=lambda x: x[2])
-
         t1 = time.perf_counter()
         self._total_latency_us += (t1 - t0) * 1_000_000
-
         return results
 
     @property
@@ -160,53 +284,27 @@ class StepExtractor:
 
 
 class OrderValidator:
-    """
-    Validate step execution order.
-
-    Check if step A depends on step B, A must appear after B in the output.
-    Generates ORDER_VIOLATION violations with expected_order and actual_order.
-    """
-
     def validate(
         self,
         executed_steps: list[tuple[str, float, int]],
         defined_steps: list[Step],
     ) -> list[StepViolation]:
-        """
-        Validate the order of executed steps.
-
-        Args:
-            executed_steps: List of (step_id, confidence, position) from StepExtractor.
-            defined_steps: List of Step definitions from the rule.
-
-        Returns:
-            List of StepViolation for order violations.
-        """
         if not executed_steps or not defined_steps:
             return []
 
         violations: list[StepViolation] = []
-
-        # Build lookup maps
         step_map: dict[str, Step] = {s.id: s for s in defined_steps}
         exec_map: dict[str, int] = {sid: pos for sid, _, pos in executed_steps}
-        exec_positions: dict[str, int] = {}
-        for idx, (sid, _, pos) in enumerate(executed_steps):
-            exec_positions[sid] = idx
 
-        # Check depends_on constraints
         for step_id, _, position in executed_steps:
             step = step_map.get(step_id)
             if not step or not step.depends_on:
                 continue
-
             for dep_id in step.depends_on:
                 if dep_id in exec_map:
                     dep_position = exec_map[dep_id]
                     if position < dep_position:
-                        # Step appears BEFORE its dependency
                         step_obj = step_map.get(step_id)
-                        dep_obj = step_map.get(dep_id)
                         violations.append(StepViolation(
                             violation_type=ViolationType.ORDER_VIOLATION,
                             step_id=step_id,
@@ -214,62 +312,36 @@ class OrderValidator:
                             severity=Severity.ERROR,
                             message=(
                                 f"Adım '{step_id}' ({step_obj.title if step_obj else ''}) "
-                                f"'{dep_id}' adımından önce gelmiş, "
-                                f"fakat '{dep_id}' adımına bağımlı."
+                                f"'{dep_id}' adımından önce gelmiş, fakat '{dep_id}' adımına bağımlı."
                             ),
-                            fix_suggestion=(
-                                f"'{step_id}' adımını '{dep_id}' adımından sonraya taşı."
-                            ),
+                            fix_suggestion=f"'{step_id}' adımını '{dep_id}' adımından sonraya taşı.",
                             expected_order=dep_position,
                             actual_order=position,
                             confidence=0.9,
                         ))
-
         return violations
 
     @property
     def avg_latency_us(self) -> float:
-        return 0  # Pure computation
+        return 0
 
 
 class CompletenessValidator:
-    """
-    Validate mandatory steps are present and complete.
-
-    Checks:
-      - All mandatory steps are present → MISSING_STEP violations
-      - Steps with checks — each check keyword should appear in LLM output
-        matched to that step → INCOMPLETE_STEP violations
-    """
-
     def validate(
         self,
         executed_steps: list[tuple[str, float, int]],
         defined_steps: list[Step],
         llm_output: str,
     ) -> list[StepViolation]:
-        """
-        Validate completeness of executed steps.
-
-        Args:
-            executed_steps: List of (step_id, confidence, position) from StepExtractor.
-            defined_steps: List of Step definitions from the rule.
-            llm_output: The raw LLM output text.
-
-        Returns:
-            List of StepViolation for missing/incomplete steps.
-        """
         if not defined_steps:
             return []
 
         violations: list[StepViolation] = []
         executed_ids = {sid for sid, _, _ in executed_steps}
-        output_lower = llm_output.lower()
-        step_map: dict[str, Step] = {s.id: s for s in defined_steps}
+        output_lower = _normalize_text(llm_output)
 
         for step in defined_steps:
             if step.mandatory and step.id not in executed_ids:
-                # Missing mandatory step
                 violations.append(StepViolation(
                     violation_type=ViolationType.MISSING_STEP,
                     step_id=step.id,
@@ -281,14 +353,18 @@ class CompletenessValidator:
                 ))
                 continue
 
-            # Check step completeness (checks)
             if step.id in executed_ids and step.checks:
                 missing_checks = []
                 for check in step.checks:
-                    check_lower = check.lower().strip()
-                    # Look for check keyword in the vicinity of the step match
-                    # For simplicity, search entire output
-                    if check_lower not in output_lower:
+                    matched = False
+                    for variant in _expand_check_aliases(check):
+                        if _match_check_variant(output_lower, variant):
+                            matched = True
+                            break
+                        if _match_check_fuzzy(output_lower, variant):
+                            matched = True
+                            break
+                    if not matched:
                         missing_checks.append(check)
 
                 if missing_checks:
@@ -299,7 +375,7 @@ class CompletenessValidator:
                         severity=Severity.WARNING,
                         message=(
                             f"Adım '{step.title}' eksik uygulanmış. "
-                    f"Eksik kontroller: {', '.join(missing_checks)}"
+                            f"Eksik kontroller: {', '.join(missing_checks)}"
                         ),
                         fix_suggestion=(
                             f"'{step.title}' adımında şu kontrolleri ekleyin: "
@@ -307,18 +383,10 @@ class CompletenessValidator:
                         ),
                         confidence=0.85,
                     ))
-
         return violations
 
 
 class WorkflowIntegrator:
-    """
-    Connects workflow validation to conflict detection.
-
-    Wraps StepExtractor + OrderValidator + CompletenessValidator,
-    converts StepViolation to Conflict objects.
-    """
-
     def __init__(self):
         self.extractor = StepExtractor()
         self.order_validator = OrderValidator()
@@ -335,22 +403,8 @@ class WorkflowIntegrator:
         rule,
         diagram_flows: list[list[str]] | None = None,
     ) -> tuple[list[Conflict], list[StepViolation]]:
-        """
-        Run full workflow validation and return both conflicts and step violations.
-
-        Args:
-            llm_output: The raw LLM output text.
-            rule: Rule object with .steps attribute (list[Step]).
-            diagram_flows: v4.4 — optional diagram flows to convert to Steps.
-
-        Returns:
-            (conflicts, step_violations) tuple.
-        """
         defined_steps: list[Step] = getattr(rule, 'steps', []) or []
-        
-        # v4.4: Diagram flows → synthetic Step'ler
-        # Eğer rule'da hiç step yoksa ama diagram_flows varsa,
-        # flowchart node'larından Step objeleri oluştur
+
         if not defined_steps and diagram_flows:
             synthetic_steps = []
             step_id_counter = 0
@@ -360,40 +414,28 @@ class WorkflowIntegrator:
                     synthetic_steps.append(Step(
                         id=f"diagram-step-{step_id_counter}",
                         title=node,
-                        description=f"Flow step: {node}",
-                        order=step_id_counter,
                         mandatory=True,
                     ))
             if synthetic_steps:
                 defined_steps = synthetic_steps
                 logger.debug("Created %d synthetic steps from diagram flows", len(synthetic_steps))
-        
+
         if not defined_steps:
             return [], []
 
-        # 1. Extract executed steps from LLM output
         executed_steps = self.extractor.extract(llm_output, defined_steps)
-
-        # 2. Validate order
         order_violations = self.order_validator.validate(executed_steps, defined_steps)
+        completeness_violations = self.completeness_validator.validate(executed_steps, defined_steps, llm_output)
 
-        # 3. Validate completeness
-        completeness_violations = self.completeness_validator.validate(
-            executed_steps, defined_steps, llm_output
-        )
-
-        # Combine all step violations
         all_violations = order_violations + completeness_violations
         self._last_step_violations = all_violations
 
-        # 4. Convert StepViolation to Conflict objects
         conflicts = []
         for sv in all_violations:
-            severity = sv.severity
             conflict = Conflict(
                 rule_id=rule.id if hasattr(rule, 'id') else 'workflow',
                 topic=rule.topic if hasattr(rule, 'topic') else 'workflow',
-                severity=severity,
+                severity=sv.severity,
                 llm_claim=f"[{sv.violation_type.value}] {sv.step_title}: {sv.message}",
                 kb_fact=sv.fix_suggestion,
                 patch_position=0,
@@ -402,20 +444,13 @@ class WorkflowIntegrator:
                 step_violation=sv,
             )
             conflicts.append(conflict)
-        
-        # SORT: MISSING_STEP conflicts in reverse step order
-        # so INSERT_BEFORE prepends them in the correct sequence.
-        # StepViolation'lara step_index ekleyelim
+
         step_index_map = {s.id: i for i, s in enumerate(defined_steps)}
         conflicts.sort(key=lambda c: (
             -c.severity.value,
-            # MISSING_STEP: Önce üst adımları INSERT_BEFORE yap (sonraki prepend edilir)
-            -(step_index_map.get(
-                c.step_violation.step_id if c.step_violation else '', 0
-            ) if c.violation_type and c.violation_type in (
-                ViolationType.MISSING_STEP, ViolationType.INCOMPLETE_STEP
-            ) else 0),
-            # ORDER_VIOLATION: pozisyona göre
+            -(step_index_map.get(c.step_violation.step_id if c.step_violation else '', 0)
+              if c.violation_type and c.violation_type in (ViolationType.MISSING_STEP, ViolationType.INCOMPLETE_STEP)
+              else 0),
             -(c.step_violation.expected_order if c.step_violation else 0),
         ))
 
