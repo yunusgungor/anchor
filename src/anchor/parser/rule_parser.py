@@ -42,6 +42,7 @@ class ParsedRule:
     priority: int = 5
     strictness: float = 0.8
     source_format: str = ""  # "md_frontmatter", "plain_text", "json", "yaml", "csv"
+    steps: list = field(default_factory=list)  # v4.0: workflow adımları
 
 
 class RuleParser:
@@ -185,6 +186,23 @@ class RuleParser:
         content = extract_content(text)
         meta = extract_metadata(text, rule_id)
         
+        # Steps from frontmatter
+        steps = fm.get("steps", [])
+        # Validate and normalize steps
+        from anchor import Step
+        normalized = []
+        if isinstance(steps, list):
+            for s in steps:
+                if isinstance(s, dict) and "id" in s:
+                    normalized.append(Step(
+                        id=s["id"],
+                        title=s.get("title", s["id"]),
+                        mandatory=s.get("mandatory", True),
+                        depends_on=s.get("depends_on", []),
+                        options=s.get("options", []),
+                        checks=s.get("checks", []),
+                    ))
+        
         return ParsedRule(
             id=rule_id,
             topic=meta["topic"],
@@ -194,6 +212,7 @@ class RuleParser:
             priority=meta["priority"],
             strictness=meta["strictness"],
             source_format="md_frontmatter",
+            steps=normalized,
         )
     
     def _parse_plain(self, text: str, rule_id: str) -> ParsedRule:

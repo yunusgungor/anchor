@@ -2,6 +2,8 @@
 ANCHOR — LLM Çıktıları için Deterministik Rectification Çerçevesi
 
 Core tanımlar ve tipler.
+
+v4.0: Workflow Governor — Step, StepViolation eklendi.
 """
 
 from dataclasses import dataclass, field
@@ -19,12 +21,56 @@ class Severity(Enum):
     CRITICAL = 4    # KB net, LLM tam tersini söylüyor
 
 
+class ViolationType(Enum):
+    """Workflow ihlal tipleri."""
+    MISSING_STEP = "missing_step"        # Zorunlu adım atlanmış
+    ORDER_VIOLATION = "order_violation"  # Adım sırası yanlış
+    EXTRA_STEP = "extra_step"            # Tanımsız adım eklenmiş
+    INCOMPLETE_STEP = "incomplete_step"  # Adım eksik uygulanmış
+
+
 @dataclass
 class Topic:
     """Çıkarılmış konu."""
     name: str
     confidence: float = 1.0
     source: str = "query"  # query | content | alias | tag
+
+
+@dataclass
+class Step:
+    """Bir workflow adımını temsil eder.
+    
+    Bir rule dosyasının frontmatter'ında tanımlanır:
+    
+    ---
+    steps:
+      - id: step-1
+        title: "Ortamı belirle"
+        mandatory: true
+        checks: ["OS versiyonu belirtilmiş mi?"]
+    ---
+    """
+    id: str
+    title: str
+    mandatory: bool = True
+    depends_on: list[str] = field(default_factory=list)
+    options: list[str] = field(default_factory=list)
+    checks: list[str] = field(default_factory=list)
+
+
+@dataclass
+class StepViolation:
+    """Bir workflow ihlali."""
+    violation_type: ViolationType
+    step_id: str
+    step_title: str
+    severity: Severity
+    message: str
+    fix_suggestion: str
+    expected_order: int = -1       # ORDER_VIOLATION için
+    actual_order: int = -1         # ORDER_VIOLATION için
+    confidence: float = 0.8
 
 
 @dataclass
@@ -41,6 +87,7 @@ class Rule:
     enriched_facts: list[str] = field(default_factory=list)  # build-time paraphrase'lar
     fact_embeddings: Any = None  # build-time pre-computed embeddings (np.ndarray)
     fact_texts: list[str] = field(default_factory=list)  # corresponding fact texts
+    steps: list[Step] = field(default_factory=list)       # v4.0: workflow steps
 
     def __hash__(self):
         return hash(self.id)
@@ -65,6 +112,7 @@ class Rule:
             tags=parsed.tags,
             priority=parsed.priority,
             strictness=parsed.strictness,
+            steps=parsed.steps,
         )
 
 
@@ -83,6 +131,9 @@ class Conflict:
     fact: str = ""          # Alias: kb_fact
     distance: float = 0.0
     position: Optional[tuple] = None
+    # v4.0: Workflow support
+    violation_type: Optional[ViolationType] = None  # StepViolation ise dolu
+    step_violation: Optional[StepViolation] = None  # StepViolation referansı
 
     def __post_init__(self):
         """Eski/yeni attribute sync."""
@@ -119,6 +170,7 @@ class RectificationResult:
     rules_activated: list[str] = field(default_factory=list)
     latency_us: dict[str, float] = field(default_factory=dict)
     modified: bool = False
+    step_violations: list[StepViolation] = field(default_factory=list)  # v4.0
 
     @property
     def summary(self) -> str:
@@ -134,5 +186,10 @@ class RectificationResult:
         parts = [f"🔧 {total} düzeltme uygulandı"]
         for sev, count in by_severity.items():
             parts.append(f"  {sev}: {count}")
+        
+        if self.step_violations:
+            parts.append(f"\n📋 {len(self.step_violations)} workflow ihlali:")
+            for sv in self.step_violations:
+                parts.append(f"  [{sv.violation_type.value}] {sv.step_title}: {sv.message}")
         
         return "\n".join(parts)

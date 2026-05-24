@@ -143,9 +143,13 @@ class AnchorEngine:
         
         # === A3: Conflict Detection (v2) ===
         all_conflicts: list[Conflict] = []
+        all_step_violations: list = []
         for rule in rules:
             conflicts = self.detector.detect(llm_output, rule, topics)
             all_conflicts.extend(conflicts)
+            # v4.0: Collect step violations
+            if hasattr(self.detector, 'last_step_violations'):
+                all_step_violations.extend(self.detector.last_step_violations)
         t3 = time.perf_counter()
         timings['conflict_detection'] = (t3 - t2) * 1_000_000
         
@@ -175,7 +179,8 @@ class AnchorEngine:
                 topics_found=topics,
                 rules_activated=[r.id for r in rules],
                 latency_us=timings,
-                modified=True
+                modified=True,
+                step_violations=all_step_violations,
             )
         else:
             result = RectificationResult(
@@ -184,7 +189,8 @@ class AnchorEngine:
                 topics_found=topics,
                 rules_activated=[r.id for r in rules],
                 latency_us=timings,
-                modified=False
+                modified=False,
+                step_violations=all_step_violations,
             )
         
         t4 = time.perf_counter()

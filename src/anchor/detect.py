@@ -478,6 +478,10 @@ class ConflictDetector:
             self._judge = LLMJudge(judge_config)
             logger.info("LLM-as-Judge enabled: %s/%s",
                         judge_config.llm_provider, judge_config.llm_model)
+        
+        # v4.0: Workflow Governor
+        self.workflow_validator = None  # lazy import WorkflowIntegrator
+        self.last_step_violations: list = []  # v4.0: last detection's step violations
 
     def detect(self, llm_output: str, rule, topics: list) -> list[Conflict]:
         """
@@ -513,7 +517,13 @@ class ConflictDetector:
         claims = self.extractor.extract(llm_output, rule.topic, rule.aliases)
 
         if not claims:
-            return []
+            # v4.0: Still run workflow validation even without claims
+            wf_conflicts, step_violations = self._run_workflow_validation(llm_output, rule)
+            self.last_step_violations = step_violations
+            conflicts.extend(wf_conflicts)
+            t1 = time.perf_counter()
+            self._total_latency_us += (t1 - t0) * 1_000_000
+            return conflicts
 
         # 2. Rule'dan fact'leri ve bilinen yanlış claim'leri parse et
         facts = self._extract_facts(rule.content)
@@ -679,7 +689,30 @@ class ConflictDetector:
 
         t1 = time.perf_counter()
         self._total_latency_us += (t1 - t0) * 1_000_000
+
+        # v4.0: Workflow validation (runs even without claims for workflow rules)
+        wf_conflicts, step_violations = self._run_workflow_validation(llm_output, rule)
+        conflicts.extend(wf_conflicts)
+        self.last_step_violations = step_violations
+
         return conflicts
+
+    def _run_workflow_validation(self, llm_output: str, rule) -> tuple[list, list]:
+        """Run workflow validation if rule has steps.
+        
+        Returns (conflicts, step_violations) tuple.
+        Used both in early-return (no claims) and normal flow.
+        """
+        if not hasattr(rule, 'steps') or not rule.steps:
+            return [], []
+        try:
+            if self.workflow_validator is None:
+                from anchor.compliance.workflow_validator import WorkflowIntegrator
+                self.workflow_validator = WorkflowIntegrator()
+            return self.workflow_validator.validate(llm_output, rule)
+        except Exception as e:
+            logger.warning("Workflow validation failed: %s", e)
+            return [], []
 
     def _extract_facts(self, content: str) -> list[str]:
         """Rule içeriğinden fact'leri çıkar.

@@ -20,6 +20,8 @@ class PatchStrategy(Enum):
     INSERT_AFTER = auto()
     PATCH_SENTENCE = auto()
     OVERRIDE_SENTENCE = auto()
+    INSERT_BEFORE = auto()  # v4.0: Insert content BEFORE a specific position
+    REORDER = auto()        # v4.0: Reorder steps within the text
 
 
 @dataclass
@@ -85,6 +87,15 @@ class PatchEngine:
         """Bir conflict'ten patch oluştur."""
         strategy = self._select_strategy(conflict.severity)
 
+        # v4.0: Workflow violations may specify strategy via conflict attributes
+        if conflict.violation_type is not None:
+            # Workflow violations use INSERT_BEFORE or REORDER
+            vt = conflict.violation_type.value if hasattr(conflict.violation_type, 'value') else str(conflict.violation_type)
+            if vt in ('missing_step', 'incomplete_step'):
+                strategy = PatchStrategy.INSERT_BEFORE
+            elif vt == 'order_violation':
+                strategy = PatchStrategy.REORDER
+
         original = conflict.claim
         pos = conflict.position[0] if conflict.position else 0
 
@@ -92,6 +103,10 @@ class PatchEngine:
             replacement = self._format_note(conflict.fact)
         elif strategy == PatchStrategy.INSERT_AFTER:
             replacement = self._format_insertion(conflict.fact)
+        elif strategy == PatchStrategy.INSERT_BEFORE:
+            replacement = self._format_insertion_before(conflict.fact)
+        elif strategy == PatchStrategy.REORDER:
+            replacement = self._format_reorder(conflict.fact)
         elif strategy == PatchStrategy.PATCH_SENTENCE:
             replacement = self._format_patch(original, conflict.fact)
         elif strategy == PatchStrategy.OVERRIDE_SENTENCE:
@@ -127,6 +142,24 @@ class PatchEngine:
                 text = text[:end_pos] + " " + patch.replacement + text[end_pos:]
             else:
                 text = text.rstrip() + " " + patch.replacement
+        elif patch.strategy == PatchStrategy.INSERT_BEFORE:
+            # Insert replacement BEFORE the original text position
+            original = patch.original
+            if original in text:
+                start_pos = text.find(original)
+                text = text[:start_pos] + patch.replacement + " " + text[start_pos:]
+            else:
+                # If original not found, prepend
+                text = patch.replacement + "\n\n" + text
+        elif patch.strategy == PatchStrategy.REORDER:
+            # Replace the ordered section (reorder steps)
+            # For reorder, replacement contains the corrected section
+            original = patch.original
+            if original in text:
+                text = text.replace(original, patch.replacement, 1)
+            else:
+                # If original not found at top level, check for fuzzy match
+                text = self._fuzzy_replace(text, original, patch.replacement)
         elif patch.strategy in (PatchStrategy.PATCH_SENTENCE, PatchStrategy.OVERRIDE_SENTENCE):
             original = patch.original
             if original in text:
@@ -159,6 +192,14 @@ class PatchEngine:
 
     def _format_insertion(self, fact: str) -> str:
         return f"Ancak kayıtlarıma göre: {fact.strip()}."
+
+    def _format_insertion_before(self, fact: str) -> str:
+        """Format for INSERT_BEFORE strategy — prepend a note."""
+        return f"📋 **Eksik Adım:** {fact.strip()}"
+
+    def _format_reorder(self, fact: str) -> str:
+        """Format for REORDER strategy — corrected step order."""
+        return f"📋 **Sıralama Düzeltmesi:** {fact.strip()}"
 
     def _format_patch(self, original: str, fact: str) -> str:
         return f"{original.strip().rstrip('.')} (doğrusu: {fact.strip()})."

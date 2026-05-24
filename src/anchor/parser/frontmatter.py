@@ -26,6 +26,11 @@ def parse_frontmatter(text: str) -> dict[str, Any]:
     tags: [hardware, chip]
     priority: 10
     strictness: 0.9
+    steps:
+      - id: step-1
+        title: "Ortamı belirle"
+        mandatory: true
+        checks: ["OS versiyonu?"]
     ---
     
     Returns:
@@ -39,14 +44,38 @@ def parse_frontmatter(text: str) -> dict[str, Any]:
         return {}
     
     fm: dict[str, Any] = {}
-    for line in parts[1].strip().split("\n"):
-        line = line.strip()
+    lines = parts[1].split("\n")
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
         if not line or ":" not in line:
+            i += 1
             continue
         
         key, _, val = line.partition(":")
         key = key.strip()
         val = val.strip()
+        
+        # Nested list-of-dicts (steps:)
+        # Detect by: val boş ve sonraki satır indentli "- " ile başlıyor
+        if not val and i + 1 < len(lines) and lines[i + 1].strip().startswith("- "):
+            items = _parse_nested_list(lines, i + 1)
+            fm[key] = items
+            # Sonraki satırları atla (nested list tarafından tüketildi)
+            # indent seviyesini bul
+            indent = len(lines[i + 1]) - len(lines[i + 1].lstrip())
+            i += 1
+            while i < len(lines):
+                stripped = lines[i]
+                if stripped.strip() == "":
+                    i += 1
+                    continue
+                leading = len(stripped) - len(stripped.lstrip())
+                if leading <= indent and not stripped.strip().startswith("-"):
+                    break
+                i += 1
+            continue
         
         # List: [item1, item2]
         if val.startswith("[") and val.endswith("]"):
@@ -76,8 +105,85 @@ def parse_frontmatter(text: str) -> dict[str, Any]:
                 pass
         
         fm[key] = val
+        i += 1
     
     return fm
+
+
+def _parse_nested_list(lines: list[str], start_idx: int) -> list[dict[str, Any]]:
+    """YAML list-of-dicts parser (steps: için).
+    
+    Girdi:
+      - id: step-1
+        title: "Ortamı belirle"
+        mandatory: true
+      - id: step-2
+        title: "Hatayı tanımla"
+    
+    Çıktı:
+      [{"id": "step-1", "title": "Ortamı belirle", "mandatory": True}, ...]
+    """
+    items: list[dict[str, Any]] = []
+    current_item: dict[str, Any] = {}
+    in_item = False
+    base_indent = len(lines[start_idx]) - len(lines[start_idx].lstrip()) if start_idx < len(lines) else 0
+    
+    for line in lines[start_idx:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        
+        leading = len(line) - len(line.lstrip())
+        
+        # Yeni liste öğesi
+        if stripped.startswith("- "):
+            if in_item and current_item:
+                items.append(current_item)
+                current_item = {}
+            in_item = True
+            # İlk key:value'yu çıkar (---den sonra)
+            content = stripped[2:].strip()
+            if ":" in content:
+                k, _, v = content.partition(":")
+                current_item[k.strip()] = _parse_scalar(v.strip())
+        
+        # Aynı item'ın alt alanı
+        elif in_item and leading > base_indent and ":" in stripped:
+            k, _, v = stripped.partition(":")
+            current_item[k.strip()] = _parse_scalar(v.strip())
+    
+    if in_item and current_item:
+        items.append(current_item)
+    
+    return items
+
+
+def _parse_scalar(val: str) -> Any:
+    """Tek bir scalar değeri parse et (string, bool, int, float, list)."""
+    if not val:
+        return ""
+    if val.startswith("[") and val.endswith("]"):
+        return [
+            v.strip().strip("'\"").strip()
+            for v in val[1:-1].split(",")
+            if v.strip()
+        ]
+    if val.startswith('"') and val.endswith('"'):
+        return val.strip('"')
+    if val.startswith("'") and val.endswith("'"):
+        return val.strip("'")
+    if val.lower() in ("true", "yes", "on"):
+        return True
+    if val.lower() in ("false", "no", "off"):
+        return False
+    if val.isdigit() or (val.startswith("-") and val[1:].isdigit()):
+        return int(val)
+    try:
+        if val.replace(".", "").replace("-", "").isdigit():
+            return float(val)
+    except ValueError:
+        pass
+    return val.strip()
 
 
 def extract_content(text: str) -> str:
