@@ -103,6 +103,44 @@ class StepExtractor:
                             best_confidence = confidence
                             best_pos = min(positions)
 
+            # Check step checks keywords (e.g., "OS" in "Windows 11")
+            # Uses smart matching: exact word, prefix match (3+ chars), and common aliases
+            if best_confidence < 0.5 and step.checks:
+                check_words_found = 0
+                check_matches = []
+                for check in step.checks:
+                    check_lower = check.lower().strip()
+                    # 1. Exact word boundary match: \bOS\b
+                    if re.search(r'\b' + re.escape(check_lower) + r'\b', output_lower):
+                        check_words_found += 1
+                        check_matches.append(check)
+                    # 2. Word-start match: "Windows" contains "win" prefix
+                    elif len(check_lower) >= 3 and re.search(
+                            r'\b' + re.escape(check_lower) + r'[a-z]*\b',
+                            output_lower, re.IGNORECASE):
+                        check_words_found += 0.5  # half-weight for prefix
+                        check_matches.append(check)
+                if check_words_found > 0:
+                    # Weak match: at least one check keyword found
+                    confidence = 0.3 + (0.15 * min(1.0, check_words_found))
+                    if confidence > best_confidence:
+                        # Find earliest position of any matching check
+                        positions = []
+                        for c in step.checks:
+                            cl = c.lower()
+                            # Try exact match first, then prefix
+                            m = re.search(r'\b' + re.escape(cl) + r'\b', output_lower)
+                            if not m and len(cl) >= 3:
+                                m = re.search(
+                                    r'\b' + re.escape(cl) + r'[a-z]*\b',
+                                    output_lower, re.IGNORECASE
+                                )
+                            if m:
+                                positions.append(m.start())
+                        if positions:
+                            best_pos = min(positions)
+                            best_confidence = confidence
+
             if best_confidence > 0.0:
                 results.append((step.id, best_confidence, best_pos))
 
@@ -341,5 +379,21 @@ class WorkflowIntegrator:
                 step_violation=sv,
             )
             conflicts.append(conflict)
+        
+        # SORT: MISSING_STEP conflicts in reverse step order
+        # so INSERT_BEFORE prepends them in the correct sequence.
+        # StepViolation'lara step_index ekleyelim
+        step_index_map = {s.id: i for i, s in enumerate(defined_steps)}
+        conflicts.sort(key=lambda c: (
+            -c.severity.value,
+            # MISSING_STEP: Önce üst adımları INSERT_BEFORE yap (sonraki prepend edilir)
+            -(step_index_map.get(
+                c.step_violation.step_id if c.step_violation else '', 0
+            ) if c.violation_type and c.violation_type in (
+                ViolationType.MISSING_STEP, ViolationType.INCOMPLETE_STEP
+            ) else 0),
+            # ORDER_VIOLATION: pozisyona göre
+            -(c.step_violation.expected_order if c.step_violation else 0),
+        ))
 
         return conflicts, all_violations

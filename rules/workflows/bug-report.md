@@ -1,6 +1,6 @@
 ---
 topic: "Bug Report Workflow"
-aliases: ["bug-report", "hata-raporu"]
+aliases: ["bug-report", "hata-raporu", "bug report", "hata raporu", "bug"]
 tags: [workflow, process, quality]
 priority: 10
 strictness: 0.9
@@ -8,19 +8,21 @@ steps:
   - id: step-1
     title: "Ortamı belirle"
     mandatory: true
-    checks: ["OS", "browser"]
+    checks: ["Windows", "Linux", "macOS", "Chrome", "Firefox", "tarayıcı"]
   - id: step-2
     title: "Hatayı tanımla"
     mandatory: true
     depends_on: [step-1]
-    checks: ["adım", "reproduce"]
+    checks: ["hata", "reproduce", "adım", "aşama"]
   - id: step-3
     title: "Logları ekle"
     mandatory: true
     depends_on: [step-2]
+    checks: ["log", "hata kodu", "kayıt"]
   - id: step-4
     title: "Beklenen davranışı açıkla"
     mandatory: true
+    checks: ["beklenen", "olması gereken", "normalde"]
   - id: step-5
     title: "Öncelik belirle"
     mandatory: false
