@@ -1,0 +1,50 @@
+name: Anchor Demo Agent CI
+
+on:
+  push:
+    branches: [ main, master, dev ]
+    paths:
+      - 'demo-agent/**'
+      - 'rules/**'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'demo-agent/**'
+      - 'rules/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: demo-agent
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: "pip"
+
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -e .
+        pip install pytest
+
+    - name: Run tests
+      run: |
+        python -m pytest tests/test_agent.py -v --tb=short
+
+    - name: Verify demo runner
+      run: |
+        python run_demo.py --list
+
+    - name: Trigger on changes
+      uses: stefanzweifel/git-auto-commit-action@v5
+      if: github.event_name == 'push'
+      with:
+        commit_message: "🤖 auto: anchor demo agent CI update"
+        file_pattern: demo-agent/rules demo-agent/agent demo-agent/tests

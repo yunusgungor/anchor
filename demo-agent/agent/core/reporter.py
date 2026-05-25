@@ -60,10 +60,13 @@ class Reporter:
         
         if result.modified:
             count = len(result.corrections)
-            severity = max(
-                (c.get("severity", "INFO") for c in result.corrections),
-                key=lambda s: {"CRITICAL": 4, "ERROR": 3, "WARNING": 2, "INFO": 1}.get(s, 0),
-            )
+            try:
+                severity = max(
+                    (c.conflict.severity.name if hasattr(c.conflict, 'severity') else "INFO" for c in result.corrections),
+                    key=lambda s: {"CRITICAL": 4, "ERROR": 3, "WARNING": 2, "INFO": 1}.get(s, 0),
+                )
+            except (ValueError, AttributeError):
+                severity = "INFO"
             severity_emoji = {
                 "CRITICAL": "🔴",
                 "ERROR": "❌",
@@ -74,11 +77,13 @@ class Reporter:
             lines.append(f" {severity_emoji}  Düzeltme: {count} adet")
             
             for i, corr in enumerate(result.corrections, 1):
-                sev = corr.get("severity", "INFO")
+                sev = corr.conflict.severity.name if hasattr(corr.conflict, 'severity') else "INFO"
                 sev_icon = {"CRITICAL": "🔴", "ERROR": "❌", "WARNING": "⚠️", "INFO": "ℹ️"}.get(sev, "")
+                orig = corr.original_text if hasattr(corr, 'original_text') else ""
+                corr_text = corr.corrected_text if hasattr(corr, 'corrected_text') else ""
                 lines.append(f"\n   {i}. {sev_icon}[{sev}]")
-                lines.append(f"      ❌ Yanlış: {corr.get('original', '')[:100]}")
-                lines.append(f"      ✅ Doğru:  {corr.get('corrected', '')[:100]}")
+                lines.append(f"      ❌ Yanlış: {orig[:100]}")
+                lines.append(f"      ✅ Doğru:  {corr_text[:100]}")
         else:
             lines.append(f" ✅  Düzeltme: Gerekmedi — cevap zaten kurallara uygun")
         
@@ -159,7 +164,7 @@ class Reporter:
         
         if result.modified:
             for i, corr in enumerate(result.corrections, 1):
-                sev = corr.get("severity", "INFO")
+                sev = corr.conflict.severity.name if hasattr(corr.conflict, 'severity') else "INFO"
                 corrections_html += f"""
                 <div class="correction severity-{sev.lower()}">
                     <span class="badge">{sev}</span>
@@ -230,8 +235,10 @@ class Reporter:
         if result.modified:
             lines.append(f"## Corrections ({len(result.corrections)})")
             for corr in result.corrections:
-                sev = corr.get("severity", "INFO")
-                lines.append(f"- **[{sev}]** ❌ ~~{corr.get('original', '')}~~ → ✅ {corr.get('corrected', '')}")
+                sev = corr.conflict.severity.name if hasattr(corr.conflict, 'severity') else "INFO"
+                orig = corr.original_text if hasattr(corr, 'original_text') else ""
+                ctext = corr.corrected_text if hasattr(corr, 'corrected_text') else ""
+                lines.append(f"- **[{sev}]** ❌ ~~{orig}~~ → ✅ {ctext}")
         else:
             lines.append("✅ No corrections needed.")
         

@@ -3,9 +3,15 @@ WorkflowMode — Anchor'ın Workflow Governor yeteneğini sergileyen mod.
 
 Bu mod şunları gösterir:
   - Workflow Governor ile adım-adım süreç yönetimi
-  - Adım sırası ve eksik adım kontrolü
-  - Karmaşık iş akışlarının doğrulanması
-  - Adım bazlı output validation
+  - Adım sırası ve eksik adım kontrolü (ORDER_VIOLATION / MISSING_STEP)
+  - Karmaşık iş akışlarının doğrulanması (INCOMPLETE_STEP)
+  - Gerçek anchor_result.step_violations ile entegrasyon
+
+[v4.5+] Enhanced Features:
+  - Real Anchor Governor: BUILTIN_WORKFLOWS yerine gerçek engine step_violations
+  - Step Progress Bar: Adımların tamamlanma yüzdesini görselleştir
+  - Violation Detail: Her ihlal için tip, adım, mesaj + fix önerisi
+  - Flow Path Display: Diagram-aware flow paths'i göster
 """
 
 import re
@@ -13,61 +19,33 @@ from typing import Any, Optional
 
 from anchor.engine import RectificationResult
 
-
-# Workflow tanımları (demo amaçlı)
-BUILTIN_WORKFLOWS = {
-    "anchor-setup": {
-        "name": "Anchor Kurulum",
-        "steps": [
-            "requirements kurulumu (pip install anchor-engine)",
-            "rules dizini oluşturma",
-            "topic tanımlama",
-            "kural yazma (rule.md formatında)",
-            "AnchorEngine build",
-            "test çalıştırma",
-        ],
-    },
-    "content-creation": {
-        "name": "İçerik Üretimi",
-        "steps": [
-            "konu ve hedef kitle belirleme",
-            "ana mesajı belirleme",
-            "format seçimi (tweet/post/thread/makale)",
-            "ilk taslağı yazma",
-            "Anchor ile doğrulama",
-            "son düzeltme ve yayın",
-        ],
-    },
-    "fact-checking": {
-        "name": "Doğruluk Kontrolü",
-        "steps": [
-            "sorguyu analiz et",
-            "ilgili kuralları yükle",
-            "A1: cümlelere ayır + hata tespit",
-            "A2: semantic similarity kontrol",
-            "A3: causal conflict tree oluştur",
-            "A4: rectification uygula",
-            "Judge pipeline ile doğrula",
-            "rapor oluştur",
-        ],
-    },
+# Violation type display
+VIOLATION_DISPLAY = {
+    "MISSING_STEP": {"emoji": "⭕", "label": "Eksik Adım", "color": "\033[93m"},
+    "ORDER_VIOLATION": {"emoji": "🔀", "label": "Sıra Hatası", "color": "\033[91m"},
+    "INCOMPLETE_STEP": {"emoji": "⚠️", "label": "Eksik İçerik", "color": "\033[94m"},
 }
+RESET = "\033[0m"
 
 
 class WorkflowMode:
     """
     Workflow Mode — Adım-adım süreç rehberliği.
-    
+
     Anchor'ın Workflow Governor'ını kullanarak:
     - Kullanıcıya adım-adım rehberlik eder
     - Her adımın output'unu validate eder
     - Eksik/atlama varsa uyarır
+    - Gerçek engine.step_violations ile çalışır
+
+    [v4.5+] Artık BUILTIN_WORKFLOWS yerine Anchor engine'in
+    ürettiği gerçek step_violations'ları kullanır.
     """
-    
+
     def __init__(self):
         self.name = "workflow"
-        self._stats = {"total_workflows": 0, "errors_caught": 0}
-    
+        self._stats = {"total_workflows": 0, "errors_caught": 0, "total_steps_validated": 0}
+
     def post_process(
         self,
         query: str,
@@ -77,103 +55,168 @@ class WorkflowMode:
     ) -> dict:
         """
         Anchor sonrası Workflow özel işleme.
-        
-        1. Workflow adımlarını parse et
-        2. Eksik adım var mı kontrol et
-        3. Adım sırası doğru mu kontrol et
-        4. Output validation varsa çalıştır
+
+        1. anchor_result.step_violations'ları oku
+        2. Her ihlali violation tipine göre sınıflandır
+        3. Step progress yüzdesi hesapla
+        4. Flow path varsa diagram-aware info ekle
+        5. Fix önerileri oluştur
         """
         result = {
             "mode": self.name,
-            "workflow_detected": None,
-            "steps_found": [],
-            "steps_missing": [],
-            "step_count": 0,
+            "workflow_found": False,
+            "workflow_name": None,
+            "violations": [],
+            "violation_breakdown": {},
+            "step_progress": {"completed": 0, "total": 0, "percentage": 0},
+            "violation_types": set(),
+            "flow_paths": [],
+            "fix_suggestions": [],
         }
-        
-        # Workflow adımlarını parse et
-        steps = self._parse_steps(corrected)
-        result["steps_found"] = steps
-        result["step_count"] = len(steps)
-        
-        # Builtin workflow ile karşılaştır
-        detected = self._detect_workflow(query, steps)
-        result["workflow_detected"] = detected
-        
-        if detected and detected in BUILTIN_WORKFLOWS:
-            expected = BUILTIN_WORKFLOWS[detected]["steps"]
-            missing = self._find_missing_steps(steps, expected)
-            result["steps_missing"] = missing
-            
-            if missing:
-                result["warning"] = f"⚠️ Eksik adımlar: {', '.join(missing)}"
-                self._stats["errors_caught"] += 1
-        
+
+        if anchor_result and hasattr(anchor_result, 'step_violations'):
+            step_violations = anchor_result.step_violations or []
+
+            if step_violations:
+                result["workflow_found"] = True
+
+                # --- Violations list ---
+                violations = self._parse_violations(step_violations)
+                result["violations"] = violations
+
+                # --- Violation breakdown ---
+                breakdown = self._violation_breakdown(violations)
+                result["violation_breakdown"] = breakdown
+                result["violation_types"] = list(breakdown.keys())
+
+                # --- Step progress ---
+                progress = self._calculate_progress(violations)
+                result["step_progress"] = progress
+
+                # --- Flow paths (diagram-aware) ---
+                if hasattr(anchor_result, 'flow_conflicts'):
+                    result["flow_paths"] = anchor_result.flow_conflicts
+
+                # --- Fix suggestions ---
+                result["fix_suggestions"] = self._generate_fixes(violations, step_violations)
+
+                # Stats
+                self._stats["errors_caught"] += len(violations)
+                self._stats["total_steps_validated"] += progress["total"]
+
         self._stats["total_workflows"] += 1
         return result
-    
+
     def enrich_query(self, query: str, context_notes: str | None = None) -> str:
         """Workflow query'sini zenginleştir."""
         enriched = query
         if context_notes:
             enriched = f"{query}\n\n[Context]: {context_notes}"
         return enriched
-    
-    # -------- Helpers --------
-    
+
+    # ---------------------------------------------------------------- #
+    # Violation Parsing
+    # ---------------------------------------------------------------- #
+
     @staticmethod
-    def _parse_steps(text: str) -> list[str]:
-        """Cevaptaki adımları parse et."""
-        steps = []
-        
-        # Pattern 1: "1️⃣ Adım 1:" veya "1. Adım"
-        patterns = [
-            r'\d+[\.\)]\s*(?:Adım\s*)?\d*\s*[:-]\s*(.+?)(?=\n\d+[\.\)]|\Z)',
-            r'\d+[️⃣]\s*(?:Adım\s*)?\d*\s*[:-]\s*(.+?)(?=\n\d+[️⃣]|\Z)',
-            r'(?:1️⃣|2️⃣|3️⃣|4️⃣|5️⃣|6️⃣|7️⃣|8️⃣|9️⃣|🔟)\s*(.+?)(?=\n(?:1️⃣|2️⃣|3️⃣|4️⃣|5️⃣|6️⃣|7️⃣|8️⃣|9️⃣|🔟)|\Z)',
-        ]
-        
-        for pattern in patterns:
-            matches = re.findall(pattern, text, re.DOTALL)
-            if matches:
-                steps = [m.strip().split('\n')[0][:80] for m in matches]
-                break
-        
-        # Pattern 2: line-by-line numbered items
-        if not steps:
-            for line in text.split('\n'):
-                line = line.strip()
-                if re.match(r'^\d+[\.\)]\s', line):
-                    step_text = re.sub(r'^\d+[\.\)]\s*', '', line)
-                    steps.append(step_text[:80])
-        
-        return steps
-    
+    def _parse_violations(step_violations: list) -> list[dict]:
+        """
+        StepViolation nesnelerini dict listesine çevir.
+
+        Her ihlal:
+            {
+                "type": "MISSING_STEP",
+                "step_id": "step-2",
+                "step_title": "Hatayı tanımla",
+                "severity": "ERROR",
+                "message": "...",
+                "display": "⭕ [Eksik Adım] step-2: Hatayı tanımla",
+            }
+        """
+        parsed = []
+        for sv in step_violations:
+            vtype = sv.violation_type.value if hasattr(sv.violation_type, 'value') else str(sv.violation_type)
+            sev = sv.severity.name if hasattr(sv.severity, 'name') else "ERROR"
+            display_info = VIOLATION_DISPLAY.get(vtype, {"emoji": "❓", "label": vtype})
+
+            entry = {
+                "type": vtype,
+                "step_id": sv.step_id,
+                "step_title": sv.step_title,
+                "severity": sev,
+                "message": sv.message if hasattr(sv, 'message') else f"{display_info['label']}: {sv.step_title}",
+                "display": f"{display_info['emoji']} [{display_info['label']}] {sv.step_title}",
+            }
+            parsed.append(entry)
+        return parsed
+
     @staticmethod
-    def _detect_workflow(query: str, steps: list[str]) -> str | None:
-        """Hangi workflow olduğunu tespit et."""
-        query_lower = query.lower()
-        
-        for wf_id, wf_info in BUILTIN_WORKFLOWS.items():
-            name_lower = wf_info["name"].lower()
-            if name_lower in query_lower:
-                return wf_id
-        
-        return None
-    
+    def _violation_breakdown(violations: list[dict]) -> dict:
+        """İhlal tiplerine göre dağılım."""
+        breakdown = {}
+        for v in violations:
+            vtype = v["type"]
+            if vtype not in breakdown:
+                breakdown[vtype] = 0
+            breakdown[vtype] += 1
+        return breakdown
+
     @staticmethod
-    def _find_missing_steps(found: list[str], expected: list[str]) -> list[str]:
-        """Beklenen adımlardan hangileri eksik?"""
-        missing = []
-        found_lower = [s.lower() for s in found]
-        
-        for exp in expected:
-            exp_lower = exp.lower()
-            if not any(exp_lower[:10] in f for f in found_lower):
-                missing.append(exp)
-        
-        return missing
-    
+    def _calculate_progress(violations: list[dict]) -> dict:
+        """
+        Adım ilerleme yüzdesi hesapla.
+
+        Toplam adım sayısı = tüm ihlallerin step_id'lerinin uniqueness'i
+        + tamamlanan adımlar. Basit model: her ihlal = 1 eksik adım.
+        """
+        total_steps = max(len(set(v["step_id"] for v in violations)), 1)
+        missing = len(violations)
+        completed = max(0, total_steps - missing)
+        return {
+            "completed": completed,
+            "total": total_steps,
+            "percentage": round((completed / total_steps) * 100),
+        }
+
+    @staticmethod
+    def _generate_fixes(violations: list[dict], raw_violations: list) -> list[str]:
+        """Her ihlal için fix önerisi üret."""
+        suggestions = []
+        for v in violations:
+            vtype = v["type"]
+            title = v["step_title"]
+            if vtype == "MISSING_STEP":
+                suggestions.append(f"➕ '{title}' adımını ekleyin")
+            elif vtype == "ORDER_VIOLATION":
+                suggestions.append(f"🔀 '{title}' adımını doğru sıraya taşıyın")
+            elif vtype == "INCOMPLETE_STEP":
+                suggestions.append(f"📝 '{title}' adımını detaylandırın")
+        return suggestions
+
+    @staticmethod
+    def format_workflow_report(violations: list[dict], progress: dict) -> str:
+        """Workflow raporu formatla (terminal için)."""
+        lines = ["\n📋 Workflow Validation Report"]
+        lines.append(f"{'─'*40}")
+
+        # Progress bar
+        pct = progress["percentage"]
+        bar_width = 20
+        filled = int(pct / 100 * bar_width)
+        bar = "█" * filled + "░" * (bar_width - filled)
+        lines.append(f"  İlerleme: {bar} {pct}% ({progress['completed']}/{progress['total']})")
+
+        if violations:
+            lines.append(f"\n  ⚠️  {len(violations)} ihlal tespit edildi:")
+            for v in violations:
+                lines.append(f"    {v['display']}")
+                if v.get("message"):
+                    lines.append(f"      → {v['message']}")
+        else:
+            lines.append("\n  ✅ Tüm adımlar tamam!")
+
+        return "\n".join(lines)
+
     @property
     def stats(self) -> dict:
         return dict(self._stats)
