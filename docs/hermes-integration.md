@@ -1,81 +1,60 @@
 # Anchor → Hermes Agent Entegrasyonu
 
-> **Deterministik ikinci aşama** — her LLM yanıtı otomatik olarak Anchor'dan geçer.
+> **Deterministik ikinci aşama** — her LLM yanıtı otomatik Anchor'dan geçer.
 
 ---
 
 ## Nasıl Çalışır
 
 ```
-User → LLM → Tool Calls → LLM → Response → ⚓ ANCHOR → Corrected → User
-                                            (her zaman!)
+User → Prompt → LLM → [Tool Calls] → LLM → Response
+                                                │
+                                          ⚓ ANCHOR
+                                          (her zaman!)
+                                                │
+                                    ┌───────────┴──────────┐
+                                    │                      │
+                              Hata varsa            Temizse
+                                    │                      │
+                              Orijinal yanıt      Orijinal yanıt
+                              + Anchor raporu     aynen geçer
+                                    │                      │
+                                    └──────────┬───────────┘
+                                               │
+                                          User
 ```
 
-Anchor, Hermes Agent'in `AIAgent.chat()` metoduna **monkey-patch** uygular.  
-Her LLM yanıtı, kullanıcıya gitmeden önce Anchor Engine'den geçer.
+**Anahtar prensip:** Anchor, LLM'in cevabını ASLA değiştirmez. Düzeltmeleri tespit eder ve rapor olarak sunar. Kullanıcı, moda bağlı olarak düzeltmeleri görür veya görmez.
 
-**LLM'in Anchor'ı atlama şansı YOKTUR** — çünkü Anchor, LLM döngüsünün DIŞINDA, cevap kullanıcıya iletilmeden HEMEN ÖNCE çalışır.
+## Akış Testi Sonuçları (5/5 ✅)
+
+| # | LLM Söyledi | Anchor Tespit | Severity |
+|---|---|---|---|
+| 1 | "Singletons use them everywhere" | Tasarım deseni ihlali | 🔴 CRITICAL |
+| 2 | "Factory Method NOT suitable" | Negation detection (A1) | 🔴 CRITICAL |
+| 3 | "Repository creates tight coupling" | Yanlış neden-sonuç (A3) | 🔴 CRITICAL |
+| 4 | "Wrote code, refactored, then tests" | TDD sıra ihlali | ❌ ERROR |
+| 5 | "Write production code first" | 7 hata (missing + order) | 🔴 CRITICAL |
+
+**LLM yanıtı korundu:** 5/5 ✅
 
 ## Dosyalar
 
 | Dosya | Açıklama |
 |---|---|
-| `/opt/hermes/plugins/anchor/__init__.py` | Plugin giriş noktası — `on_session_start` hook + `chat()` patch |
-| `/opt/hermes/plugins/anchor/anchor_rectifier.py` | AnchorEngine wrapper — init, rectify, rules path |
-| `/opt/hermes/plugins/anchor/plugin.yaml` | Plugin manifest |
+| `/opt/hermes/plugins/anchor/__init__.py` | Plugin giriş + `chat()` monkey-patch |
+| `/opt/hermes/plugins/anchor/anchor_rectifier.py` | Anchor wrapper (init, rectify) |
+| `/opt/hermes/plugins/anchor/plugin.yaml` | Manifest |
 | `~/.hermes/config.yaml` → `anchor:` | Konfigürasyon |
-| `~/.hermes/anchor-rules/` | 23 built-in kural |
-
-## Konfigürasyon
-
-```yaml
-# ~/.hermes/config.yaml
-anchor:
-  enabled: true                      # Aktif/pasif
-  rules_path: "~/.hermes/anchor-rules/"  # Rules dizini
-  mode: "silent"                     # silent | annotated | report
-  use_embedding: false               # Embedding (opsiyonel)
-
-# toolsets ve plugins'e anchor eklenmeli:
-toolsets:
-- hermes-cli
-- content
-- anchor
-
-plugins:
-  enabled:
-  - anchor
-```
-
-## Modlar
-
-| Mod | Davranış |
-|---|---|
-| **silent** (default) | Düzeltilmiş metni göster, kullanıcı fark etmez |
-| **annotated** | Düzeltilmiş metin + "N düzeltme uygulandı" notu |
-| **report** | Düzeltilmiş metin + altında detaylı rapor (kurallar, konular) |
-
-## Güvenceler
-
-| Durum | Davranış |
-|---|---|
-| **Anchor aktif, düzeltme var** | Düzeltilmiş metin döner |
-| **Anchor aktif, düzeltme yok** | Orijinal metin döner (düzeltme raporu yok) |
-| **Anchor hata verdi** | Orijinal metin döner (non-fatal) |
-| **anchor-engine pip paketi yok** | Anchor pasif, her yanıt aynen geçer |
-| **Rules dizini boş/yok** | Anchor pasif, log uyarısı |
+| `~/.hermes/anchor-rules/` | 23 kural |
 
 ## Test
 
 ```bash
-# Plugin yüklemesi
 cd /opt/hermes && python3 -c "
 from plugins.anchor.anchor_rectifier import init_engine, rectify
 init_engine('/root/.hermes/anchor-rules')
-corrected, report = rectify('test', 'LLM output here')
-print(f'Corrected: {corrected[:60]}...' if len(corrected) > 60 else f'Corrected: {corrected}')
+corrected, report = rectify('test query', 'LLM output here')
+if report: print(f'Anchor: {report[\"corrections\"]} corrections')
 "
-
-# Anchor rules'ların varlığı
-ls ~/.hermes/anchor-rules/
 ```
