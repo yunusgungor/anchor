@@ -1,0 +1,72 @@
+[
+  {
+    "id": "q01",
+    "query": "Neural Processor X1 hakkında bilgi ver",
+    "llm_output": "NPX1, TSMC'nin 7nm düğümünde üretilen genel amaçlı bir AI hızlandırıcısıdır. NVIDIA Jetson ile rekabet eder.",
+    "expected_severity": "CRITICAL",
+    "tags": ["npx1", "conflict", "silicon"]
+  },
+  {
+    "id": "q02",
+    "query": "StateGuard nedir?",
+    "llm_output": "StateGuard bir güvenlik duvarı aracıdır. Uygulama güvenliği için kullanılır.",
+    "expected_severity": "CRITICAL",
+    "tags": ["stateguard", "conflict"]
+  },
+  {
+    "id": "q03",
+    "query": "SKY130 hakkında bilgi",
+    "llm_output": "SKY130, Global Foundries'in 130nm düğümüdür. ASIC üretimi için kullanılır.",
+    "expected_severity": "CRITICAL",
+    "tags": ["sky130", "conflict"]
+  },
+  {
+    "id": "q04",
+    "query": "RISC-V işlemci mimarisi",
+    "llm_output": "RISC-V, genel amaçlı bir işlemci mimarisidir. Intel x86 ile rekabet eder.",
+    "expected_severity": "WARNING",
+    "tags": ["riscv", "architecture"]
+  },
+  {
+    "id": "q05",
+    "query": "Clean Architecture prensipleri nelerdir?",
+    "llm_output": "Clean Architecture, yazılım katmanlarını ayırarak bağımlılıkları yönetir. SOLID prensipleriyle birlikte kullanılır.",
+    "expected_severity": "NONE",
+    "tags": ["architecture", "clean-code"]
+  },
+  {
+    "id": "q06",
+    "query": "Git branching stratejisi",
+    "llm_output": "Git branching için trunk-based development önerilir. Özellik branch'leri kısa ömürlü olmalıdır.",
+    "expected_severity": "INFO",
+    "tags": ["git", "branching"]
+  },
+  {
+    "id": "q07",
+    "query": "Code review sürecini anlat",
+    "llm_output": "PR'yi inceledim, bir değişiklik isteğim yok, onaylıyorum. Test kapsamına bakmadım.",
+    "expected_severity": "ERROR",
+    "tags": ["workflow", "code-review"]
+  },
+  {
+    "id": "q08",
+    "query": "TDD cycle nasıl işler?",
+    "llm_output": "Önce testleri yazarım, sonra refactor ederim. Yeşil fazı atlayarak gelen testleri geçiririm.",
+    "expected_severity": "ERROR",
+    "tags": ["tdd", "workflow"]
+  },
+  {
+    "id": "q09",
+    "query": "Incident response prosedürü",
+    "llm_output": "İhlali tespit et, etkiyi azalt ve postmortem yaz. Etki değerlendirmesi opsiyoneldir.",
+    "expected_severity": "WARNING",
+    "tags": ["workflow", "incident"]
+  },
+  {
+    "id": "q10",
+    "query": "Semantic versioning nedir?",
+    "llm_output": "SemVer: MAJOR.MINOR.PATCH şeklindedir. MAJOR breaking changes için, MINOR yeni özellikler için, PATCH bug fix için artırılır.",
+    "expected_severity": "NONE",
+    "tags": ["release", "versioning"]
+  }
+]

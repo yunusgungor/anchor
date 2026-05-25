@@ -1,0 +1,98 @@
+[
+  {
+    "id": "wc01",
+    "claim": "In TDD, you should write all tests at once before writing any implementation",
+    "expected_conflict": true,
+    "severity": "CRITICAL",
+    "explanation": "RGR rule: 'Write exactly one test at a time'. Writing all tests at once violates TDD cycle",
+    "rules": ["red-green-refactor"]
+  },
+  {
+    "id": "wc02",
+    "claim": "In Clean Architecture, dependencies point outward from inner to outer layers",
+    "expected_conflict": true,
+    "severity": "CRITICAL",
+    "explanation": "Clean Architecture: dependencies must point INWARD toward higher-level policies",
+    "rules": ["clean-architecture"]
+  },
+  {
+    "id": "wc03",
+    "claim": "The test pyramid recommends mostly end-to-end tests with a few unit tests",
+    "expected_conflict": true,
+    "severity": "CRITICAL",
+    "explanation": "Test Pyramid: many fast unit tests, fewer integration tests, small number of E2E",
+    "rules": ["test-pyramid"]
+  },
+  {
+    "id": "wc04",
+    "claim": "Branch names in git can be any descriptive name without a specific pattern",
+    "expected_conflict": true,
+    "severity": "CRITICAL",
+    "explanation": "Branching rules: names MUST follow '<type>/<short-description>' pattern",
+    "rules": ["branching-and-commits"]
+  },
+  {
+    "id": "wc05",
+    "claim": "TDD cycle is: implement the code first, then write tests to verify it",
+    "expected_conflict": true,
+    "severity": "CRITICAL",
+    "explanation": "TDD is RED→GREEN→REFACTOR, test-first approach, not implement-first",
+    "rules": ["red-green-refactor"]
+  },
+  {
+    "id": "wc06",
+    "claim": "Code review only needs to check syntax and formatting — logic and test coverage are optional",
+    "expected_conflict": true,
+    "severity": "CRITICAL",
+    "explanation": "Code review process includes logic verification, test coverage, and security checks",
+    "rules": ["code-review"]
+  },
+  {
+    "id": "wc07",
+    "claim": "Refactoring in TDD means rewriting the tests to make them cleaner",
+    "expected_conflict": true,
+    "severity": "CRITICAL",
+    "explanation": "Refactor phase: improve production code without changing behavior, NOT rewriting tests",
+    "rules": ["red-green-refactor"]
+  },
+  {
+    "id": "wc08",
+    "claim": "A project should have equal numbers of unit, integration, and e2e tests",
+    "expected_conflict": true,
+    "severity": "ERROR",
+    "explanation": "Test Pyramid prescribes a distribution: many unit, some integration, few E2E",
+    "rules": ["test-pyramid"]
+  },
+  {
+    "id": "wc09",
+    "claim": "Clean Architecture dependencies do NOT point outward — they point inward",
+    "expected_conflict": false,
+    "severity": "NONE",
+    "explanation": "Negation test: correctly negates outward direction with 'do NOT point outward'",
+    "tags": ["negation"]
+  },
+  {
+    "id": "wc10",
+    "claim": "Each commit should be a single logical unit of change with a clear message",
+    "expected_conflict": false,
+    "severity": "NONE",
+    "explanation": "Correct statement about git commit best practices — should pass clean",
+    "rules": ["branching-and-commits"]
+  },
+  {
+    "id": "wc11",
+    "claim": "Feature branches should be short-lived and regularly merged back to main",
+    "expected_conflict": false,
+    "severity": "NONE",
+    "explanation": "Correct branching practice — should NOT trigger conflict",
+    "rules": ["branching-and-commits"]
+  },
+  {
+    "id": "wc12",
+    "claim": "A monolith architecture with no clear separation of concerns is preferred over Clean Architecture",
+    "expected_conflict": true,
+    "severity": "CRITICAL",
+    "explanation": "Clean Architecture requires layered separation — monolith with no separation violates core principles",
+    "rules": ["clean-architecture"]
+  }
+]

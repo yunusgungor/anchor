@@ -54,6 +54,7 @@ class JudgeConfig:
     llm_provider: str = "openai"
     llm_model: str = "gpt-4o-mini"
     llm_api_key: Optional[str] = None
+    llm_base_url: Optional[str] = None  # OpenAI-compatible base URL
     
     # Prompt
     prompt_template: str = "short"  # "short" veya "default"
@@ -200,20 +201,37 @@ class LLMJudge:
         LLM client factory.
         
         Desteklenen provider'lar:
-          - openai: OpenAI API
+          - openai: OpenAI API (llm_base_url ile custom endpoint)
           - anthropic: Anthropic Claude API
           - ollama: Local LLM
-          - http: Custom HTTP endpoint
+          - openai-compatible: OpenRouter, Groq, local vLLM (llm_base_url zorunlu)
+          - mock: Sadece embedding kullan, LLM yok
         
         Varsayılan: mock (sadece embedding kullan, LLM yok)
         """
         provider = self.config.llm_provider
         api_key = self.config.llm_api_key or os.getenv("OPENAI_API_KEY")
         model = self.config.llm_model
+        base_url = self.config.llm_base_url
 
         if provider == "openai":
             import openai
-            client = openai.OpenAI(api_key=api_key)
+            kwargs = {"api_key": api_key}
+            if base_url:
+                kwargs["base_url"] = base_url
+            client = openai.OpenAI(**kwargs)
+            return lambda p: client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": p}],
+                temperature=0.0,
+                max_tokens=10,
+            ).choices[0].message.content
+
+        elif provider == "openai-compatible":
+            if not base_url:
+                raise ValueError("openai-compatible provider için llm_base_url zorunludur.")
+            import openai
+            client = openai.OpenAI(api_key=api_key, base_url=base_url)
             return lambda p: client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": p}],

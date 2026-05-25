@@ -42,8 +42,11 @@ pip install -e ".[all]"
 # Test (96/96)
 pytest tests/ -q
 
-# Demo Agent (6 senaryo)
-PYTHONPATH=src python demo_agent.py
+# Demo Agent (7 entegre senaryo)
+cd demo-agent && python run_all.py
+
+# Tekil senaryo
+cd demo-agent && python scenarios/s01_fact_conflict.py
 
 # Chat UI
 PYTHONPATH=src python -m uvicorn anchor.ui.app:app --host 0.0.0.0 --port 8080
@@ -91,7 +94,7 @@ anchor/
 │   └── concepts/architectural-sovereignty.md
 ├── tests/                       # 96 test
 ├── benchmark/                   # Performans benchmark
-├── demo_agent.py                # 6 senaryolu demo
+├── demo-agent/                  # 7 entegre senaryolu tanıtım paketi
 ├── docs/manifesto.md            # Matematiksel framework
 ├── Dockerfile + docker-compose.yml
 └── pyproject.toml
@@ -215,16 +218,20 @@ Anchor, LLM'in **önünde** değil, **sonunda** çalışır — RAG'ın aksine L
 ## 🧪 Demo
 
 ```bash
-PYTHONPATH=src python demo_agent.py
+cd demo-agent && python run_all.py
 ```
 
-6 senaryo içerir:
-- **A**: Yanlış bilgi → CRITICAL override (NPX1/TSMC → SKY130)
-- **B**: Eksik bilgi → WARNING ekleme
-- **C**: Doğru bilgi → Değişiklik yok
-- **D**: Cross-domain (StateGuard)
-- **E**: Batch işleme (3 sorgu)
-- **F**: Streaming simülasyonu
+7 entegre senaryo, tüm Anchor kabiliyetlerini sergiler:
+- **Fact Conflict Detection**: CRITICAL/WARNING/INFO conflict'ler
+- **Confusion Table**: Bilinen yanlış claim'leri CRITICAL override
+- **Workflow Governor**: Step order + completeness validation
+- **FlowConflictMatcher**: Diagram akışına aykırı LLM output'ları
+- **Negation-Aware**: "no X", "skip Y" detection
+- **Constraint Engine**: C5 creative compliance layer
+- **Judge Pipeline**: Embedding + LLM-as-Judge borderline arbitration
+- **Diagram Extraction**: Mermaid/ASCII → flow facts
+- **ScalableStore**: Bloom filter, LRU cache, domain sharding
+- **CLI/UI**: anchor-cli aracı + FastAPI dashboard
 
 ---
 

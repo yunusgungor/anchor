@@ -172,6 +172,59 @@ class OllamaClient(BaseLLMClient):
             raise RuntimeError(f"Ollama streaming hatası: {e}")
 
 
+class OpenAICompatibleClient(BaseLLMClient):
+    """OpenAI-compatible API client (OpenRouter, Groq, Together, local vLLM, etc.)."""
+
+    def __init__(self, api_key: str, base_url: str, model: str = "gpt-4o-mini"):
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+
+        if not self.api_key:
+            raise ValueError("API key gerekli. OPENAI_API_KEY env var veya api_key parametresi.")
+
+    def chat(self, prompt: str, system: str | None = None) -> str:
+        try:
+            import openai
+            client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
+
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.7,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            raise RuntimeError(f"OpenAI-compatible API hatası ({self.base_url}): {e}")
+
+    def stream_chat(self, prompt: str, system: str | None = None):
+        try:
+            import openai
+            client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
+
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+
+            stream = client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.7,
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as e:
+            raise RuntimeError(f"OpenAI-compatible streaming hatası ({self.base_url}): {e}")
+
+
 class LLMClient:
     """
     Unified LLM client factory.
@@ -179,12 +232,18 @@ class LLMClient:
     Kullanım:
         client = LLMClient(provider="openai", api_key="sk-...")
         text = client.chat("Merhaba")
+        
+        # Custom OpenAI-compatible (OpenRouter, Groq, local vLLM, etc.):
+        client = LLMClient(provider="openai-compatible",
+                           api_key="sk-...", base_url="https://openrouter.ai/api/v1")
+        text = client.chat("Merhaba")
     """
     
     PROVIDERS = {
         "openai": OpenAIClient,
         "anthropic": AnthropicClient,
         "ollama": OllamaClient,
+        "openai-compatible": OpenAICompatibleClient,
     }
     
     def __init__(self, provider: str = "openai", **kwargs):

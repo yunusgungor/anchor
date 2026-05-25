@@ -50,9 +50,10 @@ class RuleEnricher:
     Sonuçlar binary index'e kaydedilir, runtime'da kullanılır.
     
     Args:
-        llm_provider: "openai", "anthropic", "ollama", "mock"
+        llm_provider: "openai", "anthropic", "ollama", "openai-compatible", "mock"
         llm_model: Model adı
         llm_api_key: API key (None = env var)
+        llm_base_url: Custom API base URL (openai-compatible için zorunlu)
         paraphrases_per_fact: Her fact için kaç paraphrase (default: 3)
         prompt_template: "default" veya "en"
     """
@@ -62,12 +63,14 @@ class RuleEnricher:
         llm_provider: str = "openai",
         llm_model: str = "gpt-4o-mini",
         llm_api_key: Optional[str] = None,
+        llm_base_url: Optional[str] = None,
         paraphrases_per_fact: int = 3,
         prompt_template: str = "default",
     ):
         self.llm_provider = llm_provider
         self.llm_model = llm_model
         self.llm_api_key = llm_api_key
+        self.llm_base_url = llm_base_url
         self.paraphrases_per_fact = paraphrases_per_fact
         self._client = None
         self._total_calls = 0
@@ -156,10 +159,26 @@ class RuleEnricher:
     def _create_client(self):
         """LLM client factory."""
         api_key = self.llm_api_key or os.getenv("OPENAI_API_KEY")
+        base_url = self.llm_base_url
 
         if self.llm_provider == "openai":
             import openai
-            client = openai.OpenAI(api_key=api_key)
+            kwargs = {"api_key": api_key}
+            if base_url:
+                kwargs["base_url"] = base_url
+            client = openai.OpenAI(**kwargs)
+            return lambda p: client.chat.completions.create(
+                model=self.llm_model,
+                messages=[{"role": "user", "content": p}],
+                temperature=0.3,
+                max_tokens=200,
+            ).choices[0].message.content
+
+        elif self.llm_provider == "openai-compatible":
+            if not base_url:
+                raise ValueError("openai-compatible provider için llm_base_url zorunludur.")
+            import openai
+            client = openai.OpenAI(api_key=api_key, base_url=base_url)
             return lambda p: client.chat.completions.create(
                 model=self.llm_model,
                 messages=[{"role": "user", "content": p}],

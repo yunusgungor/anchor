@@ -63,23 +63,25 @@ class SafeLLMAgent:
         self,
         rules_path: str,
         llm_provider: str = "openai",
-        llm_api_key: Optional[str] = None,
-        llm_model: Optional[str] = None,
-        index_path: Optional[str] = None,
-        system_prompt: Optional[str] = None,
-        llm_client: Optional[LLMClient] = None,
+        llm_api_key: str | None = None,
+        llm_model: str | None = None,
+        llm_base_url: str | None = None,
+        index_path: str | None = None,
+        system_prompt: str | None = None,
+        llm_client: "LLMClient | None" = None,
     ):
         """
         Agent oluştur.
         
         Args:
             rules_path: Anchor rules dizini
-            llm_provider: "openai", "anthropic", "ollama"
+            llm_provider: "openai", "anthropic", "ollama", "openai-compatible"
             llm_api_key: API key (None ise env var'dan alınır)
             llm_model: Model ismi (None ise default)
+            llm_base_url: Custom API base URL (openai-compatible provider için)
             index_path: Anchor binary index yolu
             system_prompt: LLM'e verilecek sistem prompt'u
-            llm_client: Özel LLM client (varsa provider/api_key kullanılmaz)
+            llm_client: Özel LLM client (varsa diğer parametreler kullanılmaz)
         """
         # Anchor engine
         self.engine = AnchorEngine(rules_path, index_path)
@@ -89,11 +91,13 @@ class SafeLLMAgent:
         if llm_client:
             self.llm = llm_client
         else:
-            kwargs = {}
+            kwargs: dict = {}
             if llm_api_key:
                 kwargs["api_key"] = llm_api_key
             if llm_model:
                 kwargs["model"] = llm_model
+            if llm_base_url:
+                kwargs["base_url"] = llm_base_url
             
             self.llm = LLMClient(provider=llm_provider, **kwargs)
         
