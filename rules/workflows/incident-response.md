@@ -8,7 +8,7 @@ steps:
   - id: detect
     title: "İhlali Tespit Et ve Bildir"
     mandatory: true
-    aliases: ["detected the production incident", "incident happened", "o...[truncated]
+    aliases: ["detected the production incident", "incident happened", "outage occurred"]
     checks: ["alert", "monitor", "error", "on-call", "incident", "pager"]
   - id: assess
     title: "Etkiyi ve Şiddeti Değerlendir (SEV)"
@@ -19,16 +19,19 @@ steps:
     title: "Etkiyi Azalt (Rollback/Hotfix/Feature Flag)"
     mandatory: true
     depends_on: [assess]
+    aliases: ["rolled back the deployment", "isolated the affected service", "reverted the change", "rolled back"]
     checks: ["rollback", "hotfix", "flag", "mitigate", "stop bleed", "revert"]
   - id: verify-mitigation
     title: "Mitigasyonu Doğrula (Monitoring)"
     mandatory: true
     depends_on: [mitigate]
+    aliases: ["resolved the issue", "after stabilization", "the fix is verified", "restored the previous version"]
     checks: ["health", "monitor", "error rate", "recovery", "dashboard"]
   - id: communicate
     title: "Paydaşlara Durumu Bildir"
     mandatory: true
     depends_on: [verify-mitigation]
+    aliases: ["communicated the status", "sent an update", "documented the incident", "documented everything"]
     checks: ["status", "update", "stakeholder", "communication", "post"]
   - id: root-cause
     title: "Kök Neden Analizi Yap"
@@ -58,55 +61,85 @@ Standardized process for detecting, mitigating, and learning from production inc
 |-------|-----------|----------|-----------------|
 | **SEV1** | Complete service outage or data loss | Immediate, all hands | Every 30 min |
 | **SEV2** | Major feature degradation, partial outage | < 15 min | Every 1 hour |
-| **SEV3** | Minor issue, workaround available | < 1 hour | Daily |
-| **SEV4** | Cosmetic, no user impact | Next business day | Per update |
+| **SEV3** | Minor issue, no customer impact | < 1 hour | Every 2 hours |
 
-## Incident Response Flow
+## Key Principles
 
-### 1. Detection
-- Automated alerts (monitoring, synthetic checks)
-- User reports (support tickets, social media)
-- Manual observation during development
+1. **Safety first** — Mitigate before investigating root cause
+2. **Transparency** — Communicate status to stakeholders regularly
+3. **Blameless culture** — Focus on system improvements, not individuals
+4. **Learn and improve** — Every incident leads to concrete action items
 
-### 2. Assessment
-- Confirm the incident is real (not a false alarm)
-- Determine severity level (SEV1-SEV4)
-- Declare incident in communication channel
-- Assign incident commander
+## Incident Command Structure
 
-### 3. Mitigation
-- Primary goal: stop the bleeding
-- Rollback the recent change
-- Deploy hotfix
-- Toggle feature flag
-- Scale up resources
-- DO NOT fix the root cause yet — stop the impact first
+- **Incident Commander (IC)** — Coordinates response, makes escalation decisions
+- **Communications Lead (CL)** — Handles stakeholder updates
+- **Technical Lead (TL)** — Drives technical investigation and resolution
+- **Scribe** — Documents timeline and decisions
 
-### 4. Verification
-- Confirm error rates returning to baseline
-- Verify all affected users can access the service
-- Run smoke tests on critical paths
-- Monitor for 15 minutes before declaring resolved
+## Communication Templates
 
-### 5. Communication
-- Status page update (if applicable)
-- Internal stakeholders notified
-- Customer-facing communication drafted
+### Initial Alert
+```
+[SEV1/SEV2/SEV3] Incident Detected: <brief description>
+Impact: <what's affected>
+Action: <initial response>
+```
 
-### 6. Root Cause Analysis
-- Timeline reconstruction
-- 5 Whys technique
-- Identify contributing factors
-- Distinguish cause from trigger
+### Status Update
+```
+Status Update #<n> — <time since detection>
+Impact: <current state>
+Action: <what we're doing>
+Next Update: <time>
+```
 
-### 7. Permanent Fix
-- Apply the actual fix (not just the mitigation)
-- Full CI/CD pipeline
-- Staging validation
-- Gradual rollout with monitoring
+### Post-Incident
+```
+Subject: Postmortem: <incident title>
+Date: <date>
+Duration: <time to resolve>
+Root Cause: <summary>
+Action Items: <list>
+```
 
-### 8. Postmortem
-- Blameless postmortem document
-- Action items with owners and deadlines
-- System improvements (monitoring, alerting, testing)
-- Share learnings with the team
+## Escalation Path
+
+- **Tier 1** — On-call engineer (within 5 min)
+- **Tier 2** — Senior engineer / team lead (within 15 min)
+- **Tier 3** — Engineering manager / director (within 30 min)
+- **Tier 4** — VP / CTO (within 1 hour)
+
+## Postmortem Template
+
+```markdown
+# Postmortem: <Title>
+
+**Date:** <date>
+**Severity:** SEV<level>
+**Duration:** <start> → <end> (<duration>)
+**Incident Commander:** <name>
+
+## Timeline
+- <time> — Detection
+- <time> — Assessment
+- <time> — Mitigation
+- <time> — Verification
+- <time> — Resolution
+
+## Root Cause
+<detailed analysis>
+
+## Impact
+<users/data/revenue affected>
+
+## Action Items
+| # | Action | Owner | Due Date | Status |
+|---|--------|-------|----------|--------|
+| 1 | <action> | <person> | <date> | [ ] / [x] |
+
+## Lessons Learned
+- What went well
+- What went wrong
+- What to improve
+```

@@ -1,6 +1,6 @@
 ---
 topic: "TDD Red-Green-Refactor Cycle"
-aliases: ["tdd-cycle", "red-green-refactor", "tdd-loop", "test-first-cycle", "test driven development", "red green refactor", "test first"]
+aliases: ["tdd-cycle", "red-green-refactor", "tdd-loop", "test-first-cycle", "test driven development", "red green refactor", "test first", "tdd"]
 tags: [workflow, tdd, testing, quality, development]
 priority: 10
 strictness: 0.95

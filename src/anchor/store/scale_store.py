@@ -192,16 +192,21 @@ class ScalableRuleStore:
                         if diag_facts:
                             meta["diagram_facts"] = diag_facts
                         
-                        # Diagram'dan term'ler (extended aliases)
+                        # Diagram'dan term'ler (extended aliases — ayrı alanda tut)
                         diag_terms = []
                         for d in diagrams:
                             diag_terms.extend(diagram_to_terms(d))
                         if diag_terms:
-                            # Mevcut alias'lara ekle (fakat tekrarları önle)
-                            existing_lower = {a.lower() for a in (aliases or [])}
-                            new_terms = [t for t in diag_terms if t.lower() not in existing_lower]
-                            if new_terms:
-                                meta["aliases"] = (aliases or []) + new_terms[:10]
+                            # Sadece anlamlı diagram term'lerini sakla;
+                            # aliases'e KARIŞTIRMA, keyword matching için ayrı alanda tut
+                            meaningful_terms = [
+                                t for t in diag_terms
+                                if (len(t) >= 5 or ' ' in t)
+                                    and not all(c in '-_=|*#' for c in t)
+                            ]
+                            if meaningful_terms:
+                                meta["diagram_terms"] = meaningful_terms
+                            else:
                                 meta["diagram_terms"] = diag_terms
                         
                         # Diagram flow'ları (workflow validation için)

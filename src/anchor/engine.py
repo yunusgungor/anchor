@@ -148,6 +148,8 @@ class AnchorEngine:
                         topics.append(Topic(name=tn, confidence=0.80))
                 for alias in meta.get("aliases", []):
                     alias_lower = alias.lower()
+                    if not alias_lower or all(c in '-_=|*#/' for c in alias_lower.strip()):
+                        continue
                     if (alias_lower in query_lower or (len(alias_lower) >= 4 and query_lower in alias_lower)):
                         tn = meta["topic"]
                         if tn not in topic_names:
@@ -170,6 +172,8 @@ class AnchorEngine:
                     continue
                 for alias in meta.get("aliases", []):
                     alias_lower = alias.lower()
+                    if not alias_lower or all(c in '-_=|*#/' for c in alias_lower.strip()):
+                        continue
                     if len(alias_lower) >= 4 and alias_lower in output_lower:
                         if tn not in topic_names:
                             topic_names.append(tn)
