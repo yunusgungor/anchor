@@ -1,15 +1,15 @@
-# ⚓ Anchor Engine v3.3
+# ⚓ Anchor Engine v4.4.1
 
 > **Deterministic LLM Output Rectification** — Halüsinasyonları gerçek zamanlı düzeltir.
 
 LLM'lerin olasılıksal çıktılarını, kullanıcının kural dosyalarındaki **deterministik bilgiyle** senkronize eden **model-agnostik** rectification engine.
 
-Tek bir LLM çağrısına ihtiyaç duymaz, embedding modeli sadece build-time'da çalışır, runtime <10ms'dir.
+Tek bir LLM çağrısına ihtiyaç duymaz, embedding modeli sadece build-time'da çalışır, runtime **<1ms**'dir.
 
 [![Tests](https://img.shields.io/badge/tests-96%2F96%20passing-brightgreen)]()
-[![Latency](https://img.shields.io/badge/latency-<10ms-blue)]()
-[![Speedup](https://img.shields.io/badge/v3.3-188x%20faster-orange)]()
+[![Latency](https://img.shields.io/badge/latency-%3C1ms-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)]()
+[![PyPI](https://img.shields.io/badge/pypi-v4.4.1-orange)](https://pypi.org/project/anchor-engine/)
 
 ---
 
@@ -24,8 +24,8 @@ Kullanıcı Sorusu → LLM → Ham Cevap → Anchor → Düzeltilmiş Cevap
 | LLM Der ki | Anchor Düzeltir |
 |---|---|
 | "NPX1, TSMC 7nm'de üretilir" | "SKY130 (130nm), OpenLane ile" |
-| "StateGuard bir güvenlik duvarıdır" | "StateGuard bir LLM validasyon katmanıdır" |
-| "NPX1, NVIDIA Jetson ile rekabet eder" | "Edge AI, tarım/güvenlik — COTS ile birlikte çalışır" |
+| "Singleton'lar her yerde kullanılabilir" | "Singleton'lar dikkatli kullanılmalıdır" |
+| "Repository pattern tight coupling yaratır" | "Repository pattern temiz ayrıştırma sağlar" |
 
 **Deterministik.** Aynı input → her zaman aynı output. **Sıfır runtime LLM maliyeti.**
 
@@ -33,31 +33,52 @@ Kullanıcı Sorusu → LLM → Ham Cevap → Anchor → Düzeltilmiş Cevap
 
 ## 🚀 Quick Start
 
+### Installation
+
 ```bash
-# Kurulum
-git clone https://github.com/yunusgungor/anchor.git
-cd anchor
-pip install -e ".[all]"
+# Core engine (tüm özellikler, embedding olmadan)
+pip install anchor-engine
 
-# Test (96/96)
-pytest tests/ -q
+# Tam kurulum (embedding + LLM + UI)
+pip install "anchor-engine[all]"
 
-# Demo Agent (7 entegre senaryo)
-cd demo-agent && python run_all.py
-
-# Tekil senaryo
-cd demo-agent && python scenarios/s01_fact_conflict.py
-
-# Chat UI
-PYTHONPATH=src python -m uvicorn anchor.ui.app:app --host 0.0.0.0 --port 8080
+# Sadece LLM desteği
+pip install "anchor-engine[llm]"
 ```
 
-### Embedding (Opsiyonel, Build-time)
+### Usage
 
 ```python
 from anchor.engine import AnchorEngine
 
-# Embedding modeli build'te yüklenir, runtime'da sıfır ek yük
+# Rules dizinindeki kurallarla engine'i başlat
+engine = AnchorEngine(rules_path="/path/to/my/rules")
+engine.build()
+
+# LLM çıktısını doğrula
+result = engine.process(
+    user_query="NPX1 specs?",
+    llm_output="NPX1 uses TSMC 7nm process",
+)
+
+if result.modified:
+    print(f"Düzeltildi! {len(result.corrections)} hata")
+    print(f"✅ {result.corrected}")
+else:
+    print("✅ Hiçbir düzeltme gerekmedi")
+```
+
+### Test
+
+```bash
+pytest tests/ -q
+```
+
+### Demo Agent
+
+```bash
+cd demo-agent && python run_demo.py
+```
 engine = AnchorEngine("rules/", use_embedding=True)
 engine.build()  # ~27s (ilk sefer, model indirme + pre-compute)
 
