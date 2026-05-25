@@ -107,9 +107,9 @@ def run(rules_path: str | None = None) -> DemoReport:
     print_step(2, 5, "ask() — Single query through Anchor-guarded LLM")
 
     test_questions = [
-        "Neural Processor X1 nedir? Hangi teknoloji ile üretilir?",
-        "What is StateGuard and what does it do?",
-        "RISC-V mimarisinin avantajları nelerdir?",
+        "What are the three phases of TDD and in what order should they be performed?",
+        "What are the key principles of Clean Architecture and how do dependencies flow?",
+        "What should a code review check for beyond just syntax?",
     ]
 
     ask_results = []
@@ -159,9 +159,9 @@ def run(rules_path: str | None = None) -> DemoReport:
     # ── Step 3: batch_ask() — Multi-query ──
     print_step(3, 5, "batch_ask() — Multi-query processing")
     batch_questions = [
-        "What is the RISC-V instruction set architecture?",
-        "Explain SKY130 open source PDK",
-        "What are the advantages of open source hardware?",
+        "What is the Test Pyramid and what are the correct ratios?",
+        "Explain proper error handling in clean code practices",
+        "What are the principles of incident response in production?",
     ]
 
     t_batch_start = time.perf_counter()

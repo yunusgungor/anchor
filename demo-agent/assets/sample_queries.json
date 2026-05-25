@@ -1,72 +1,86 @@
 [
   {
     "id": "q01",
-    "query": "Neural Processor X1 hakkında bilgi ver",
-    "llm_output": "NPX1, TSMC'nin 7nm düğümünde üretilen genel amaçlı bir AI hızlandırıcısıdır. NVIDIA Jetson ile rekabet eder.",
-    "expected_severity": "CRITICAL",
-    "tags": ["npx1", "conflict", "silicon"]
-  },
-  {
-    "id": "q02",
-    "query": "StateGuard nedir?",
-    "llm_output": "StateGuard bir güvenlik duvarı aracıdır. Uygulama güvenliği için kullanılır.",
-    "expected_severity": "CRITICAL",
-    "tags": ["stateguard", "conflict"]
-  },
-  {
-    "id": "q03",
-    "query": "SKY130 hakkında bilgi",
-    "llm_output": "SKY130, Global Foundries'in 130nm düğümüdür. ASIC üretimi için kullanılır.",
-    "expected_severity": "CRITICAL",
-    "tags": ["sky130", "conflict"]
-  },
-  {
-    "id": "q04",
-    "query": "RISC-V işlemci mimarisi",
-    "llm_output": "RISC-V, genel amaçlı bir işlemci mimarisidir. Intel x86 ile rekabet eder.",
-    "expected_severity": "WARNING",
-    "tags": ["riscv", "architecture"]
-  },
-  {
-    "id": "q05",
-    "query": "Clean Architecture prensipleri nelerdir?",
-    "llm_output": "Clean Architecture, yazılım katmanlarını ayırarak bağımlılıkları yönetir. SOLID prensipleriyle birlikte kullanılır.",
-    "expected_severity": "NONE",
-    "tags": ["architecture", "clean-code"]
-  },
-  {
-    "id": "q06",
-    "query": "Git branching stratejisi",
-    "llm_output": "Git branching için trunk-based development önerilir. Özellik branch'leri kısa ömürlü olmalıdır.",
-    "expected_severity": "INFO",
-    "tags": ["git", "branching"]
-  },
-  {
-    "id": "q07",
-    "query": "Code review sürecini anlat",
-    "llm_output": "PR'yi inceledim, bir değişiklik isteğim yok, onaylıyorum. Test kapsamına bakmadım.",
-    "expected_severity": "ERROR",
-    "tags": ["workflow", "code-review"]
-  },
-  {
-    "id": "q08",
-    "query": "TDD cycle nasıl işler?",
+    "query": "TDD cycle nasıl işler? Açıkla.",
     "llm_output": "Önce testleri yazarım, sonra refactor ederim. Yeşil fazı atlayarak gelen testleri geçiririm.",
-    "expected_severity": "ERROR",
+    "expected_severity": "CRITICAL",
     "tags": ["tdd", "workflow"]
   },
   {
-    "id": "q09",
+    "id": "q02",
+    "query": "Clean Architecture bağımlılık kuralı nedir?",
+    "llm_output": "Dış katmanlar iç katmanları tanımlar, domain entity'ler veritabanına bağımlıdır.",
+    "expected_severity": "CRITICAL",
+    "tags": ["clean-architecture", "dependency"]
+  },
+  {
+    "id": "q03",
+    "query": "Test Pyramid dağılımı nasıl olmalı?",
+    "llm_output": "Sağlıklı bir test suite'i %70 E2E, %20 entegrasyon, %10 unit test içermelidir.",
+    "expected_severity": "CRITICAL",
+    "tags": ["test-pyramid", "testing"]
+  },
+  {
+    "id": "q04",
+    "query": "Code Review sürecini anlat.",
+    "llm_output": "PR'yi inceledim, değişiklik isteğim yok, onaylıyorum. Test kapsamına bakmadım.",
+    "expected_severity": "ERROR",
+    "tags": ["code-review", "workflow"]
+  },
+  {
+    "id": "q05",
+    "query": "Git branch isimlendirme nasıl olmalı?",
+    "llm_output": "Branch isimleri her şey olabilir, önemli olan içeriğin doğru olmasıdır.",
+    "expected_severity": "WARNING",
+    "tags": ["branching", "git"]
+  },
+  {
+    "id": "q06",
     "query": "Incident response prosedürü",
     "llm_output": "İhlali tespit et, etkiyi azalt ve postmortem yaz. Etki değerlendirmesi opsiyoneldir.",
     "expected_severity": "WARNING",
-    "tags": ["workflow", "incident"]
+    "tags": ["incident", "workflow"]
+  },
+  {
+    "id": "q07",
+    "query": "Error handling nasıl yapılmalı?",
+    "llm_output": "Exception'ları sessizce yut, kullanıcı deneyimi bozulmasın.",
+    "expected_severity": "CRITICAL",
+    "tags": ["error-handling", "clean-code"]
+  },
+  {
+    "id": "q08",
+    "query": "Secure coding prensipleri nelerdir?",
+    "llm_output": "API key'leri kaynak koduna hardcode etmek, repo private ise sorun değildir.",
+    "expected_severity": "CRITICAL",
+    "tags": ["secure-coding", "security"]
+  },
+  {
+    "id": "q09",
+    "query": "SOLID prensiplerini açıkla.",
+    "llm_output": "SOLID prensipleri yazılım tasarımında esneklik ve bakım kolaylığı sağlar. Her sınıf tek sorumluluğa sahip olmalıdır.",
+    "expected_severity": "NONE",
+    "tags": ["solid", "design"]
   },
   {
     "id": "q10",
-    "query": "Semantic versioning nedir?",
-    "llm_output": "SemVer: MAJOR.MINOR.PATCH şeklindedir. MAJOR breaking changes için, MINOR yeni özellikler için, PATCH bug fix için artırılır.",
+    "query": "ADR nedir?",
+    "llm_output": "ADR'ler sadece nihai kararı kaydetmeli, bağlam ve sonuçlar gereksizdir.",
+    "expected_severity": "CRITICAL",
+    "tags": ["adr", "architecture"]
+  },
+  {
+    "id": "q11",
+    "query": "Function design kuralları nelerdir?",
+    "llm_output": "İyi bir fonksiyon birçok ilgili işi aynı anda yapabilir ve kod satırından tasarruf sağlar.",
+    "expected_severity": "CRITICAL",
+    "tags": ["function-design", "clean-code"]
+  },
+  {
+    "id": "q12",
+    "query": "Naming convention nasıl olmalı?",
+    "llm_output": "İsimler anlaşılır ve tutarlı olmalıdır. Fonksiyon isimleri yaptıkları işi açıkça belirtmelidir.",
     "expected_severity": "NONE",
-    "tags": ["release", "versioning"]
+    "tags": ["naming", "clean-code"]
   }
 ]
