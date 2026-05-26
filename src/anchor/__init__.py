@@ -4,6 +4,7 @@ ANCHOR — LLM Çıktıları için Deterministik Rectification Çerçevesi
 Core tanımlar ve tipler.
 
 v4.0: Workflow Governor — Step, StepViolation eklendi.
+v5.0: Active Steering — StructuredFeedback, SteeringRound, EscalationLevel eklendi.
 """
 
 from dataclasses import dataclass, field
@@ -215,3 +216,34 @@ class RectificationResult:
                 parts.append(f"  [{sv.violation_type.value}] {sv.step_title}: {sv.message}")
         
         return "\n".join(parts)
+
+
+# ──────────────────────────────────────────────
+# v5.0: Active Steering — Forward declarations
+# These are re-exported from anchor.steering for
+# convenience (from anchor import StructuredFeedback)
+# ──────────────────────────────────────────────
+
+def __getattr__(name):
+    """Lazy import for steering types — only loaded when accessed."""
+    if name in {
+        "StructuredFeedback", "FeedbackItem", "ContentType",
+        "SteeringRound", "SteeringHistory",
+        "EscalationLevel", "EscalationDecision",
+        "SteeringLoop", "LLMGeneratorProtocol",
+    }:
+        import anchor.steering.feedback as _fb
+        import anchor.steering.loop as _lp
+        import anchor.steering.escalation as _esc
+        _mapping = {
+            "StructuredFeedback": _fb.StructuredFeedback,
+            "FeedbackItem": _fb.FeedbackItem,
+            "ContentType": _fb.ContentType,
+            "SteeringRound": _lp.SteeringRound,
+            "SteeringHistory": _lp.SteeringHistory,
+            "EscalationLevel": _esc.EscalationLevel,
+            "EscalationDecision": _esc.EscalationDecision,
+        }
+        if name in _mapping:
+            return _mapping[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

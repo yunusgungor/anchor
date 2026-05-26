@@ -395,6 +395,81 @@ class AnchorEngine:
         
         return result
 
+    def generate_feedback(
+        self,
+        user_query: str,
+        llm_output: str,
+        skip_workflow_rules: bool = False,
+    ) -> "StructuredFeedback":
+        """LLM output'undan yapılandırılmış feedback üret (GaaA formatı).
+
+        Post-hoc mode: sadece feedback üret, düzeltme uygulama.
+        Hermes plugin veya dış API tüketicileri için.
+
+        Args:
+            user_query:     Kullanıcı sorgusu
+            llm_output:     LLM çıktısı
+            skip_workflow_rules: Workflow rule'ları atlansın mı?
+
+        Returns:
+            StructuredFeedback objesi
+        """
+        from anchor.steering.feedback import (
+            StructuredFeedback, classify_content,
+        )
+
+        content_type = classify_content(llm_output, user_query)
+        result = self.process(
+            user_query=user_query,
+            llm_output=llm_output,
+            skip_workflow_rules=(
+                skip_workflow_rules or content_type.value == "educational"
+            ),
+        )
+
+        conflicts = [c.conflict for c in result.corrections]
+        if not conflicts:
+            return StructuredFeedback(feedback_text="")
+
+        return StructuredFeedback.from_conflicts(
+            conflicts,
+            content_type=content_type,
+        )
+
+    def steer(
+        self,
+        user_query: str,
+        llm_output: str,
+        skip_workflow_rules: bool = False,
+    ) -> "SteeringHistory":
+        """Anchor steering loop'u çalıştır (post-hoc, LLM re-gen yok).
+
+        Generator olmadan çalışan versiyon:
+          - Anchor analiz eder
+          - Feedback üretir
+          - Corrective mode uygular
+          - History döndürür
+
+        LLM re-generation için SteeringLoop(generator=...) kullanılmalıdır.
+
+        Args:
+            user_query:     Kullanıcı sorgusu
+            llm_output:     LLM çıktısı
+            skip_workflow_rules: Workflow rule'ları atlansın mı?
+
+        Returns:
+            SteeringHistory — tüm turların geçmişi
+        """
+        from anchor.steering.loop import SteeringLoop
+
+        loop = SteeringLoop(engine=self)
+        _, _, history = loop.run_posthoc(
+            user_query=user_query,
+            llm_output=llm_output,
+            skip_workflow_rules=skip_workflow_rules,
+        )
+        return history
+
     @property
     def stats(self) -> dict:
         """Runtime istatistikleri."""
