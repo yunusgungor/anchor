@@ -57,24 +57,53 @@ def parse_frontmatter(text: str) -> dict[str, Any]:
         key = key.strip()
         val = val.strip()
         
-        # Nested list-of-dicts (steps:)
+        # Block list (aliases:, tags:)
         # Detect by: val boş ve sonraki satır indentli "- " ile başlıyor
         if not val and i + 1 < len(lines) and lines[i + 1].strip().startswith("- "):
-            items = _parse_nested_list(lines, i + 1)
-            fm[key] = items
-            # Sonraki satırları atla (nested list tarafından tüketildi)
-            # indent seviyesini bul
-            indent = len(lines[i + 1]) - len(lines[i + 1].lstrip())
-            i += 1
-            while i < len(lines):
-                stripped = lines[i]
-                if stripped.strip() == "":
-                    i += 1
+            # Peek: içinde ":" olan ilk - item'ı bul
+            # nested list-of-dicts:  - id: step-1    → ":" içerir
+            # plain list:           - clean architecture  → ":" içermez
+            peek_idx = i + 1
+            while peek_idx < len(lines):
+                peek_line = lines[peek_idx].strip()
+                if not peek_line:
+                    peek_idx += 1
                     continue
-                leading = len(stripped) - len(stripped.lstrip())
-                if leading <= indent and not stripped.strip().startswith("-"):
+                if peek_line.startswith("- "):
+                    peek_content = peek_line[2:].strip()
+                    # ":" içeriyorsa ve key:value pattern'ine uyuyorsa → nested
+                    if ":" in peek_content:
+                        k, _, v = peek_content.partition(":")
+                        if k.strip() and not k.strip().startswith("-"):
+                            items = _parse_nested_list(lines, i + 1)
+                            fm[key] = items
+                            break
+                    # ":" yok → plain list
+                    items = _parse_plain_list(lines, i + 1)
+                    fm[key] = items
                     break
+                # Farklı bir key'e geçildi → boş list
+                break
+            else:
+                items = _parse_plain_list(lines, i + 1)
+                fm[key] = items
+
+            # Sonraki satırları atla
+            if isinstance(fm.get(key), list):
+                indent = len(lines[i + 1]) - len(lines[i + 1].lstrip())
                 i += 1
+                while i < len(lines):
+                    stripped = lines[i]
+                    if stripped.strip() == "":
+                        i += 1
+                        continue
+                    leading = len(stripped) - len(stripped.lstrip())
+                    if leading <= indent and not stripped.strip().startswith("-"):
+                        break
+                    i += 1
+                continue
+            # Fallback: el ile atla
+            i += 1
             continue
         
         # List: [item1, item2]
@@ -155,6 +184,48 @@ def _parse_nested_list(lines: list[str], start_idx: int) -> list[dict[str, Any]]
     if in_item and current_item:
         items.append(current_item)
     
+    return items
+
+
+def _parse_plain_list(lines: list[str], start_idx: int) -> list[str]:
+    """YAML plain block list parser (aliases: / tags: için).
+
+    Girdi:
+      - clean architecture
+      - repository pattern
+      - dependency rule
+
+    Çıktı:
+      ["clean architecture", "repository pattern", "dependency rule"]
+    """
+    items: list[str] = []
+    base_indent = len(lines[start_idx]) - len(lines[start_idx].lstrip()) if start_idx < len(lines) else 0
+
+    for line in lines[start_idx:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        leading = len(line) - len(line.lstrip())
+
+        # Aynı veya daha az indent → bu listeye ait
+        # Daha az indent ve "- " ile başlamıyorsa → yeni key, dur
+        if not stripped.startswith("- "):
+            if leading <= base_indent:
+                break
+            continue
+
+        # İçerik: "  - clean architecture" → "clean architecture"
+        content = stripped[2:].strip()
+        if content:
+            # Quoted string temizle
+            if (content.startswith('"') and content.endswith('"')) or \
+               (content.startswith("'") and content.endswith("'")):
+                content = content[1:-1].strip()
+            items.append(content)
+        else:
+            items.append("")
+
     return items
 
 
