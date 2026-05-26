@@ -12,6 +12,18 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+class RuleType(Enum):
+    """Kural tipi — domain/workflow/hybrid ayrımı.
+    
+    Domain:  Factual bilgi kuralları (her zaman çalışır)
+    Workflow: Adım-adım iş akışı kuralları (eğitim içeriğinde pasif)
+    Hybrid:  Hem domain bilgi hem workflow adımı içerir
+    """
+    DOMAIN = "domain"
+    WORKFLOW = "workflow"
+    HYBRID = "hybrid"
+
+
 class Severity(Enum):
     """Çelişki şiddet seviyesi."""
     NONE = 0        # Çelişki yok
@@ -92,6 +104,9 @@ class Rule:
     
     # v4.4: Diagram flows (from Mermaid/ASCII diagrams in rule files)
     diagram_flows: list[list[str]] = field(default_factory=list)
+    
+    # v1.2.0: Rule type (domain | workflow | hybrid)
+    rule_type: str = "domain"
 
     def __hash__(self):
         return hash(self.id)
@@ -117,6 +132,7 @@ class Rule:
             priority=parsed.priority,
             strictness=parsed.strictness,
             steps=parsed.steps,
+            rule_type=parsed.rule_type,
         )
 
 
@@ -138,6 +154,8 @@ class Conflict:
     # v4.0: Workflow support
     violation_type: Optional[ViolationType] = None  # StepViolation ise dolu
     step_violation: Optional[StepViolation] = None  # StepViolation referansı
+    # v1.2.0: Rule type (domain | workflow | hybrid)
+    rule_type: str = "domain"
 
     def __post_init__(self):
         """Eski/yeni attribute sync."""

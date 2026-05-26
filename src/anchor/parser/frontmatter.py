@@ -254,6 +254,7 @@ def extract_metadata(text: str, rule_id: str = "") -> dict[str, Any]:
         "tags": fm.get("tags", []),
         "priority": fm.get("priority", 5),
         "strictness": fm.get("strictness", 0.8),
+        "type": fm.get("type", "domain"),
     }
 
 

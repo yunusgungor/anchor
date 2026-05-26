@@ -44,6 +44,7 @@ class ParsedRule:
     source_format: str = ""  # "md_frontmatter", "plain_text", "json", "yaml", "csv"
     steps: list = field(default_factory=list)  # v4.0: workflow adımları
     domain: str = ""
+    rule_type: str = "domain"  # v1.2.0: domain | workflow | hybrid
 
 
 class RuleParser:
@@ -220,6 +221,7 @@ class RuleParser:
             source_format="md_frontmatter",
             steps=normalized,
             domain=fm.get("domain", ""),
+            rule_type=fm.get("type", "domain"),
         )
     
     def _parse_plain(self, text: str, rule_id: str) -> ParsedRule:

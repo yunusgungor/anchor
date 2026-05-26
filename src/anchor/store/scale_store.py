@@ -170,7 +170,7 @@ class ScalableRuleStore:
                 self._shard_topic_map.setdefault(rule_id.lower(), []).append(rule_id)
                 
                 # Metadata
-                aliases, tags, priority, strictness = self._extract_meta_from_file(fpath)
+                aliases, tags, priority, strictness, rule_type = self._extract_meta_from_file(fpath)
                 
                 # Auto-derive word-based aliases from topic name
                 # (e.g. "Branching & Commit Rules" → ["branching", "commit"])
@@ -200,6 +200,7 @@ class ScalableRuleStore:
                     "tags": tags,
                     "priority": priority,
                     "strictness": strictness,
+                    "rule_type": rule_type,
                 }
                 
                 # v4.4: Diagram metadata extraction
@@ -562,10 +563,11 @@ class ScalableRuleStore:
                 meta["tags"],
                 meta["priority"],
                 meta["strictness"],
+                meta.get("type", "domain"),
             )
         except Exception:
             pass
-        return [], [], 5, 0.8
+        return [], [], 5, 0.8, "domain"
     
     def query(self, topics: list[str], llm_output: str = "") -> list[Rule]:
         """
@@ -676,6 +678,10 @@ class ScalableRuleStore:
                     meta_aliases = meta.get("aliases", [])
                     if meta_aliases:
                         rule.aliases = meta_aliases
+                    # v1.2.0: Rule type consolidation — metadata authoritative
+                    meta_rule_type = meta.get("rule_type", "")
+                    if meta_rule_type:
+                        rule.rule_type = meta_rule_type
                     # Meta'dan enriched facts ve pre-computed embeddings'leri ekle
                     enriched = meta.get("enriched_facts", [])
                     if enriched:

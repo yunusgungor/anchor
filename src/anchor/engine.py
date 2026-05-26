@@ -237,16 +237,24 @@ class AnchorEngine:
         
         rules = self.store.query(topic_names, llm_output)
         if user_query.strip() and rules:
-            workflow_rules = [r for r in rules if getattr(r, 'steps', None)]
-            non_workflow_rules = [r for r in rules if not getattr(r, 'steps', None)]
-            # Workflow rule'ları sadece süreç sorusu sorulduğunda aktif olsun
-            # "Clean Architecture Dependency Rule nedir?" → ADR workflow tetiklenmez
-            # skip_workflow_rules=True ise response eğitim içeriğidir → workflow'lar pasif
-            if not is_workflow_query or skip_workflow_rules:
-                workflow_rules = []
-            if len(workflow_rules) > WF_QUERY_DIRECT_MAX_WORKFLOW_RULES:
-                workflow_rules = workflow_rules[:WF_QUERY_DIRECT_MAX_WORKFLOW_RULES]
-            rules = workflow_rules + non_workflow_rules
+            # v1.2.0: Rule type-aware filtreleme
+            # Domain → her zaman aktif (factual bilgi)
+            # Workflow → eğitim içeriğinde tamamen pasif
+            # Hybrid → factual conflicts aktif, step violation'lar pasif
+            if skip_workflow_rules:
+                domain_rules = [r for r in rules if r.rule_type == 'domain']
+                hybrid_rules = [r for r in rules if r.rule_type == 'hybrid']
+                # workflow rules tamamen atlanır
+                rules = domain_rules + hybrid_rules
+            else:
+                # Normal mod: mevcut workflow/non-workflow filtresi
+                workflow_rules = [r for r in rules if getattr(r, 'steps', None)]
+                non_workflow_rules = [r for r in rules if not getattr(r, 'steps', None)]
+                if not is_workflow_query:
+                    workflow_rules = []
+                if len(workflow_rules) > WF_QUERY_DIRECT_MAX_WORKFLOW_RULES:
+                    workflow_rules = workflow_rules[:WF_QUERY_DIRECT_MAX_WORKFLOW_RULES]
+                rules = workflow_rules + non_workflow_rules
         t2 = time.perf_counter()
         timings['knowledge_retrieval'] = (t2 - t1) * 1_000_000
         
@@ -265,10 +273,40 @@ class AnchorEngine:
         all_step_violations: list = []
         for rule in rules:
             extra = keyword_matches.get(rule.id, None)
+            rule_type = getattr(rule, 'rule_type', 'domain') or 'domain'
             conflicts = self.detector.detect(llm_output, rule, topics, additional_terms=extra)
+            # v1.2.0: Assign rule_type to each conflict for type-aware filtering
+            for c in conflicts:
+                if not c.rule_type or c.rule_type == 'domain':
+                    c.rule_type = rule_type
             all_conflicts.extend(conflicts)
             if hasattr(self.detector, 'last_step_violations'):
                 all_step_violations.extend(self.detector.last_step_violations)
+        
+        # v1.2.0: Type-aware conflict filtering for educational content
+        # Domain rules: her zaman kontrol
+        # Workflow rules: zaten rules listesinde yok (üstte filtrelendi)
+        # Hybrid rules: factual conflicts kalır, step violations gider
+        if skip_workflow_rules and all_conflicts:
+            filtered = []
+            for c in all_conflicts:
+                if c.rule_type in ('domain',):
+                    filtered.append(c)
+                elif c.rule_type in ('hybrid',):
+                    # Hybrid: step violation'ları atla, factual conflicts'i tut
+                    if c.violation_type is None and c.step_violation is None:
+                        filtered.append(c)
+                    # step violation varsa → atla (eğitim içeriğinde gereksiz)
+                elif c.rule_type in ('workflow',):
+                    pass  # workflow conflicts zaten rules listesinde yok
+                else:
+                    filtered.append(c)
+            all_conflicts = filtered
+            # Step violations listesini de temizle (eğitim içeriği)
+            all_step_violations = [sv for sv in all_step_violations
+                                    if sv.step_id not in {c.step_violation.step_id
+                                                          for c in all_conflicts
+                                                          if c.step_violation}]
         
         # Prioritize: Phase 0 known-wrong conflicts (confidence=0.5) önce gelsin
         # ki dedup'ta onlar kazansın. Diğer conflicts sıralamayı bozmaz.
