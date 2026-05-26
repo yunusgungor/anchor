@@ -116,7 +116,8 @@ class AnchorEngine:
                 break
         return kept or topics[:TOPIC_MAX_OUTPUT_RULES]
     
-    def process(self, user_query: str, llm_output: str) -> RectificationResult:
+    def process(self, user_query: str, llm_output: str,
+                skip_workflow_rules: bool = False) -> RectificationResult:
         timings = {}
         
         t0 = time.perf_counter()
@@ -240,7 +241,8 @@ class AnchorEngine:
             non_workflow_rules = [r for r in rules if not getattr(r, 'steps', None)]
             # Workflow rule'ları sadece süreç sorusu sorulduğunda aktif olsun
             # "Clean Architecture Dependency Rule nedir?" → ADR workflow tetiklenmez
-            if not is_workflow_query:
+            # skip_workflow_rules=True ise response eğitim içeriğidir → workflow'lar pasif
+            if not is_workflow_query or skip_workflow_rules:
                 workflow_rules = []
             if len(workflow_rules) > WF_QUERY_DIRECT_MAX_WORKFLOW_RULES:
                 workflow_rules = workflow_rules[:WF_QUERY_DIRECT_MAX_WORKFLOW_RULES]
