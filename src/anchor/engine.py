@@ -246,19 +246,62 @@ class AnchorEngine:
             all_conflicts.extend(conflicts)
             if hasattr(self.detector, 'last_step_violations'):
                 all_step_violations.extend(self.detector.last_step_violations)
+        
+        # Prioritize: Phase 0 known-wrong conflicts (confidence=0.5) önce gelsin
+        # ki dedup'ta onlar kazansın. Diğer conflicts sıralamayı bozmaz.
+        all_conflicts.sort(key=lambda c: (0 if c.confidence == 0.5 else 1, c.severity.value))
+        
+        # Cross-rule FP filter: herhangi bir rule'un confusion table'ında doğru
+        # olarak geçen bir claim, başka bir rule tarafından general matching ile
+        # FP olarak işaretlenmemeli.
+        from anchor.parser.extractor import extract_known_wrong_claims
+        all_correct_facts: list[str] = []
+        for rule in rules:
+            known_wrong = extract_known_wrong_claims(rule.content)
+            for _, correct in known_wrong:
+                if correct not in all_correct_facts:
+                    all_correct_facts.append(correct)
+        
+        if all_correct_facts:
+            from anchor.detect import FactMatcher
+            fp_matcher = FactMatcher(use_embedding=False)
+            filtered_conflicts = []
+            for c in all_conflicts:
+                # Phase 0 conflicts hep kalır
+                if c.confidence == 0.5:
+                    filtered_conflicts.append(c)
+                    continue
+                # General conflicts: claim doğru fact'lerden birine benziyorsa FP
+                is_correct = False
+                for cf in all_correct_facts:
+                    fm = fp_matcher.match(c.llm_claim, cf)
+                    if fm.combined_distance < 0.55:
+                        is_correct = True
+                        break
+                if not is_correct:
+                    filtered_conflicts.append(c)
+                else:
+                    pass  # FP — atla
+            all_conflicts = filtered_conflicts
         t3 = time.perf_counter()
         timings['conflict_detection'] = (t3 - t2) * 1_000_000
         
         if all_conflicts:
             corrected_text, patches = self.patcher.apply(llm_output, all_conflicts)
-            seen_claims = set()
+            # Per-rule dedup: aynı claim farklı rule'lar tarafından farklı KB fact ile
+            # düzeltilebilir (örn. known-wrong vs general fact matching).
+            # Her rule'un kendi dedup set'i var.
+            seen_claims_by_rule: dict[str, set[str]] = {}
             corrections = []
             for patch in patches:
                 conflict = next((c for c in all_conflicts if c.llm_claim == patch.original), None)
                 if conflict:
-                    if conflict.llm_claim in seen_claims:
+                    rule_id = conflict.rule_id
+                    if rule_id not in seen_claims_by_rule:
+                        seen_claims_by_rule[rule_id] = set()
+                    if conflict.llm_claim in seen_claims_by_rule[rule_id]:
                         continue
-                    seen_claims.add(conflict.llm_claim)
+                    seen_claims_by_rule[rule_id].add(conflict.llm_claim)
                     corrections.append(Correction(
                         conflict=conflict,
                         original_text=patch.original,

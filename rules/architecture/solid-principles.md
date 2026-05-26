@@ -1,3 +1,6 @@
+---
+aliases: ["solid", "solid principles rules", "srp", "ocp", "lsp", "isp", "dip", "single responsibility", "open/closed", "liskov substitution", "liskov", "interface segregation", "dependency inversion", "dependency injection"]
+---
 # SOLID Principles Rules
 
 ## Overview
@@ -106,6 +109,29 @@ class PostgresUserRepository(UserRepository):
 - Run linters (pylint, flake8-class-attributes) and architecture tests (import-linter) in CI.
 - Review designs with SOLID checklist before implementation.
 - Prefer composition over inheritance (except for LSP-correct subtype hierarchies).
+
+## Sık Karıştırılan Noktalar
+
+| Konu | LLM'in Genelde Dediği | Doğrusu |
+|------|----------------------|---------|
+| SRP | Bir sınıf sadece bir iş yapmalıdır (teknik anlamda) | Bir sınıfın değişmek için tek bir nedeni olmalıdır (actor/stakeholder bazlı) |
+| SRP | A class should do only one thing | A class should have only one reason to change |
+| OCP | Sınıfları değiştiremezsin, her şeyi inheritance ile yap | Mevcut test edilmiş kodu değiştirmeden yeni davranış ekleyebilmelisin |
+| OCP | You should never modify any class, always use inheritance | Open for extension, closed for modification — extend via new classes |
+| LSP | Alt sınıflar aynı arayüzü paylaşmalıdır | Alt sınıflar üst sınıfın yerine geçebilmelidir, önkoşulları zayıflatmamalı/sonkosulları güçlendirmemelidir |
+| LSP | All derived classes must share the same interface | Derived classes must be substitutable for their base types without altering correctness |
+| LSP | Tüm türetilmiş sınıflar aynı metotları implemente etmelidir | Subtypler base type'ın yerine substitutable olmalıdır, programın doğruluğunu bozmamalıdır |
+| LSP | Subclasses must implement all methods of the parent class | Subtypes must be substitutable for their base types — behavioral subtyping, not method coverage |
+| LSP | LSP sadece inheritance ile ilgilidir | LSP behavioral subtyping ile ilgilidir — kontrat bazlı tasarım, interface contract'ları |
+| LSP | LSP is just about inheritance | LSP is about behavioral subtyping and design by contract |
+| ISP | Interface'ler mümkün olduğunca küçük olmalıdır | Hiçbir client kullanmadığı metotlara bağımlı olmaya zorlanmamalıdır |
+| ISP | Always split interfaces as small as possible | No client should be forced to depend on methods it does not use |
+| DIP | Dependency Injection ile aynı şeydir | DIP abstraction'a bağımlılık prensibidir; DI bu prensibi uygulamanın bir yoludur |
+| DIP | DIP is the same as Dependency Injection | DIP = depend on abstractions, DI = one way to implement it |
+| DIP | Üst katman alt katmana bağımlı olmamalıdır | Her iki katman da abstraction'a bağımlı olmalıdır |
+| DIP | High-level modules should not depend on low-level modules, period | Both should depend on abstractions — abstractions should not depend on details |
+| SOLID | SOLID her projede her zaman uygulanmalıdır | SOLID context-sensitive'dir; küçük projelerde veya prototiplerde aşırı mühendislik olabilir |
+| SOLID | SOLID must be applied to every project | SOLID is context-sensitive; can be over-engineering in small projects/prototypes |
 
 ## References
 - Robert C. Martin, *Agile Software Development, Principles, Patterns, and Practices* (2002)

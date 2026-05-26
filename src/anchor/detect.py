@@ -753,6 +753,65 @@ class ConflictDetector:
         
         conflicts = []
 
+        # --- PHASE 0: Direct output scan for known-wrong claims ---
+        # ClaimExtractor bypass: confusion table'daki bilinen yanlış ifadeleri
+        # doğrudan LLM output'ta tara. ClaimExtractor topic/alias eşleşmesi
+        # gerektirdiği için, output'ta "solid" geçmeyen LSP yanlış bilgilerini
+        # yakalayamaz. Bu faz tüm output'u substring olarak tarar.
+        known_wrong_full = extract_known_wrong_claims(rule.content)
+        output_lower = llm_output.lower()
+        wrong_claim_cache: dict[str, tuple[str, str]] = {}  # (matched_substring, correct)
+        for wrong, correct in known_wrong_full:
+            # " / " ile ayrılmış alternatifleri kontrol et
+            wrong_alts = [w.strip().lower() for w in wrong.split("/") if w.strip()]
+            for alt in wrong_alts:
+                if len(alt) >= 5 and alt in output_lower:
+                    # EK KONTROL: alt aynı zamanda doğru fact'lerden birine
+                    # benziyorsa, LLM aslında doğruyu söylüyordur.
+                    # Örn: "substitutable" confusion table doğru sütununda
+                    # geçiyorsa (ters eşleşme), atla.
+                    is_also_correct = False
+                    for w2, c2 in known_wrong_full:
+                        alt_in_correct = alt in c2.lower()
+                        if alt_in_correct and len(alt) >= 5:
+                            from difflib import SequenceMatcher
+                            sm = SequenceMatcher(None, alt, c2.lower())
+                            if sm.ratio() > 0.3:
+                                is_also_correct = True
+                                break
+                    
+                    if is_also_correct:
+                        continue
+                    
+                    # Per-claim dedup
+                    if alt not in wrong_claim_cache:
+                        wrong_claim_cache[alt] = (wrong, correct)
+        
+        # Cache'teki her alt'ı conflict'e çevir, ama sentence-level grouping yap
+        # Aynı cümle içinde birden fazla known-wrong varsa tek conflict yap
+        if wrong_claim_cache:
+            sentences = re.split(r'(?<=[.!?])\s+', llm_output)
+            for sent in sentences:
+                sent_lower = sent.lower().strip()
+                matching_alts = [a for a in wrong_claim_cache if a in sent_lower]
+                if matching_alts:
+                    for alt in matching_alts:
+                        wrong, correct = wrong_claim_cache[alt]
+                        conflicts.append(Conflict(
+                            rule_id=rule.id,
+                            topic=rule.topic,
+                            llm_claim=sent.strip(),
+                            kb_fact=correct,
+                            severity=Severity.CRITICAL,
+                            confidence=0.5,
+                        ))
+
+        # Phase 0 matched sentences — general matching'de bunları atla
+        phase0_sentences_lower = set()
+        for c in conflicts:
+            if c.confidence == 0.5:  # Phase 0 conflicts
+                phase0_sentences_lower.add(c.llm_claim.lower().strip())
+
         # 1. Claim extraction (additional_terms ile genişlet)
         combined_aliases = list(rule.aliases)
         if additional_terms:
@@ -818,6 +877,10 @@ class ConflictDetector:
 
         # 3. Her claim'i kontrol et
         for claim in claims:
+            # Phase 0'da zaten eşleşmiş claim'leri general matching'de atla
+            if claim.text.lower().strip() in phase0_sentences_lower:
+                continue
+                
             # Entity name set'ini hazırla (entity-aware threshold için)
             entity_names: set[str] = set()
             entity_names.update(self._get_significant_tokens(rule.topic))
@@ -880,6 +943,10 @@ class ConflictDetector:
             
             # 3b. SONRA: Diğer fact'lerle karşılaştır 
             #     (relevance filter + dynamic threshold ile)
+            #     ÖNCE: also_correct check — claim confusion table'daki doğru
+            #     bilgilerden birine benziyorsa, FP üretme
+            also_correct_facts = [c2 for _, c2 in known_wrong]
+            
             for fact in facts:
                 # Relevance filter: farklı konu → false positive
                 if not self._are_relevant(claim.text, fact, rule.topic, rule.aliases):
@@ -887,6 +954,17 @@ class ConflictDetector:
                 
                 match = self.matcher.match(claim.text, fact)
                 if match.is_conflict:
+                    # also_correct check: claim confusion table'daki doğru
+                    # bilgilerden birine benziyorsa → FP üretme
+                    is_also_correct = False
+                    for ac_fact in also_correct_facts:
+                        fm_ac = self._jaccard_matcher.match(claim.text, ac_fact)
+                        if fm_ac.combined_distance < 0.55:
+                            is_also_correct = True
+                            break
+                    if is_also_correct:
+                        continue
+                    
                     # Dynamic threshold: ortak keyword varsa, paraphrase
                     # olabilir → daha yüksek eşik gerekli
                     claim_tokens = self._get_significant_tokens(claim.text)

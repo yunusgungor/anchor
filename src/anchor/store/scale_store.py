@@ -83,27 +83,9 @@ class ScalableRuleStore:
     
     def build(self):
         """
-        Index'leri inşa et. Önce binary index dene, yoksa rebuild et.
+        Index'leri inşa et. Her zaman rebuild et (geliştirme modu).
         """
-        # 1. Binary index var ve fresh mi?
-        if not self._binman.is_stale():
-            loaded = self._binman.load()
-            if loaded:
-                self._shard_topic_map = loaded["shard_map"]
-                self._bloom = loaded["bloom"]
-                self._semantic = loaded["semantic"]
-                self._rule_meta = {r["id"]: r for r in loaded.get("rule_metadata", [])}
-                # v4.3: Restore keyword index from cache
-                self._distinctive_keyword_index = loaded.get("distinctive_keyword_index", {})
-                if not self._distinctive_keyword_index:
-                    self._rebuild_keyword_index_from_meta()
-                self._built = True
-                # Eager model pre-warm for <10ms first query
-                if self._use_embedding:
-                    self._pre_warm_model()
-                return
-        
-        # 2. Yoksa rebuild et
+        # Geliştirme modu: her zaman rebuild
         self._rebuild()
     
     def _pre_warm_model(self):

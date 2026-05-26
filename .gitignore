@@ -1,6 +1,8 @@
 # Anchor binary cache files
 .anchor*.idx
 .anchor*.idx.npz
+binary_index.json
+binary_index.npz
 
 # Python
 __pycache__/
