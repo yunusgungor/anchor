@@ -217,10 +217,22 @@ class AnchorEngine:
             topics = self._apply_output_rule_limits(topics, keyword_matches)
             topic_names = [t.name for t in topics]
         
+        # Workflow rule filter: factual sorular workflow rule'larını tetiklememeli
+        # Eğer query'de işlem/süreç kelimesi yoksa, workflow rule'larını filtrele
+        query_lower_wf = user_query.lower().strip()
+        workflow_keywords = ['nasıl', 'süreç', 'adım', 'workflow', 'yapılır', 'işlem',
+                            'how to', 'process', 'step', 'procedure', 'yöntem',
+                            'akış', 'pipeline', 'work', 'should i', 'best practice']
+        is_workflow_query = any(kw in query_lower_wf for kw in workflow_keywords)
+        
         rules = self.store.query(topic_names, llm_output)
         if user_query.strip() and rules:
             workflow_rules = [r for r in rules if getattr(r, 'steps', None)]
             non_workflow_rules = [r for r in rules if not getattr(r, 'steps', None)]
+            # Workflow rule'ları sadece süreç sorusu sorulduğunda aktif olsun
+            # "Clean Architecture Dependency Rule nedir?" → ADR workflow tetiklenmez
+            if not is_workflow_query:
+                workflow_rules = []
             if len(workflow_rules) > WF_QUERY_DIRECT_MAX_WORKFLOW_RULES:
                 workflow_rules = workflow_rules[:WF_QUERY_DIRECT_MAX_WORKFLOW_RULES]
             rules = workflow_rules + non_workflow_rules

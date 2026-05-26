@@ -27,6 +27,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Türkçe ASCII↔UTF-8 normalizasyon tablosu
+TR_CHAR_MAP = str.maketrans({
+    'ı': 'i', 'ğ': 'g', 'ü': 'u', 'ş': 's', 'ö': 'o', 'ç': 'c',
+    'İ': 'I', 'Ğ': 'G', 'Ü': 'U', 'Ş': 'S', 'Ö': 'O', 'Ç': 'C',
+})
+
+
+def normalize_tr(text: str) -> str:
+    """Türkçe karakterleri ASCII karşılıklarına çevir (lowercase).
+    
+    Örn: 'sınıflar' → 'siniflar', 'üst' → 'ust'
+    """
+    return text.lower().translate(TR_CHAR_MAP)
+
 
 @dataclass
 class MatchResult:
@@ -760,12 +774,14 @@ class ConflictDetector:
         # yakalayamaz. Bu faz tüm output'u substring olarak tarar.
         known_wrong_full = extract_known_wrong_claims(rule.content)
         output_lower = llm_output.lower()
+        output_norm = normalize_tr(llm_output)  # Türkçe ASCII normalizasyon
         wrong_claim_cache: dict[str, tuple[str, str]] = {}  # (matched_substring, correct)
         for wrong, correct in known_wrong_full:
             # " / " ile ayrılmış alternatifleri kontrol et
             wrong_alts = [w.strip().lower() for w in wrong.split("/") if w.strip()]
             for alt in wrong_alts:
-                if len(alt) >= 5 and alt in output_lower:
+                alt_norm = normalize_tr(alt)  # ASCII normalizasyon
+                if len(alt_norm) >= 5 and (alt in output_lower or alt_norm in output_norm):
                     # EK KONTROL: alt aynı zamanda doğru fact'lerden birine
                     # benziyorsa, LLM aslında doğruyu söylüyordur.
                     # Örn: "substitutable" confusion table doğru sütununda
@@ -926,11 +942,13 @@ class ConflictDetector:
                     also_correct = False
                     if known_wrong and facts:
                         for fact in facts:
-                            fm = self._jaccard_matcher.match(claim.text, fact)
+                            norm_claim = normalize_tr(claim.text)
+                            norm_fact = normalize_tr(fact)
+                            fm = self._jaccard_matcher.match(norm_claim, norm_fact)
                             if fm.combined_distance < 0.5:
                                 also_correct = True
                                 break
-                    
+
                     if not also_correct:
                         conflicts.append(Conflict(
                             rule_id=rule.id,
@@ -958,10 +976,38 @@ class ConflictDetector:
                     # bilgilerden birine benziyorsa → FP üretme
                     is_also_correct = False
                     for ac_fact in also_correct_facts:
-                        fm_ac = self._jaccard_matcher.match(claim.text, ac_fact)
+                        norm_claim = normalize_tr(claim.text)
+                        norm_ac = normalize_tr(ac_fact)
+                        fm_ac = self._jaccard_matcher.match(norm_claim, norm_ac)
                         if fm_ac.combined_distance < 0.55:
                             is_also_correct = True
                             break
+                    
+                    # Ek kontrol: claim rule içeriğinde literal olarak geçiyorsa FP üretme
+                    if not is_also_correct:
+                        for sent in claim.text.split('.'):
+                            sent = sent.strip()
+                            if len(sent) >= 10 and sent.lower() in rule.content.lower():
+                                is_also_correct = True
+                                break
+                            sent_norm = normalize_tr(sent)
+                            if len(sent_norm) >= 10 and sent_norm in normalize_tr(rule.content):
+                                is_also_correct = True
+                                break
+                        # Ek kontrol 2: claim'in önemli token'larının çoğu rule content'te geçiyorsa
+                        if not is_also_correct:
+                            ct = self._get_significant_tokens(claim.text)
+                            rc = self._get_significant_tokens(rule.content)
+                            topic_tokens = self._get_significant_tokens(rule.topic)
+                            for alias in rule.aliases:
+                                topic_tokens.update(self._get_significant_tokens(alias))
+                            ct_filtered = ct - topic_tokens
+                            if ct_filtered:
+                                overlap = ct_filtered & rc
+                                ratio = len(overlap) / len(ct_filtered)
+                                if ratio >= 0.5:
+                                    is_also_correct = True
+                    
                     if is_also_correct:
                         continue
                     
