@@ -266,10 +266,13 @@ class SteeringLoop:
             )
 
             # 4. Escalation decision
-            max_sev = max(
-                (c.conflict.severity for c in result.corrections),
-                default=Severity.NONE,
-            )
+            max_sev = Severity.NONE
+            if result.corrections:
+                max_sev = max(
+                    (c.conflict.severity for c in result.corrections),
+                    key=lambda s: s.value,
+                    default=Severity.NONE,
+                )
             esc_decision = self.escalation.decide(
                 max_severity=max_sev,
                 exhaustion=exhaustion_state,
@@ -366,10 +369,13 @@ class SteeringLoop:
         ) if conflicts else StructuredFeedback(feedback_text="")
 
         # Round 0 record
-        max_sev = max(
-            (c.conflict.severity for c in corrections),
-            default=Severity.NONE,
-        )
+        max_sev = Severity.NONE
+        if corrections:
+            max_sev = max(
+                (c.conflict.severity for c in corrections),
+                key=lambda s: s.value,
+                default=Severity.NONE,
+            )
         severity_counts = {}
         for c in corrections:
             sev_name = c.conflict.severity.name if hasattr(c.conflict, 'severity') else "INFO"
