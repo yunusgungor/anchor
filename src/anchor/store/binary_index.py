@@ -80,3 +80,31 @@ class BinaryIndexManager:
             logger.debug("Binary index saved: %d rules, %d embeddings", len(rule_metadata), len(embeddings))
         except Exception as e:
             logger.warning("Binary index save failed: %s", e)
+
+    def invalidate(self):
+        """Delete index files — forces rebuild on next build()."""
+        import shutil
+        if self.index_dir.exists() and self.index_dir != self.rules_path:
+            shutil.rmtree(self.index_dir)
+        elif self.index_path.exists():
+            self.index_path.unlink(missing_ok=True)
+        if self.npz_path.exists():
+            self.npz_path.unlink(missing_ok=True)
+
+    def load_index(self) -> bool:
+        """
+        Load cached index and unpack into component dicts.
+        
+        Returns True if loaded successfully, False if stale/missing.
+        """
+        if self.is_stale():
+            return False
+        data = self.load()
+        if data is None:
+            return False
+        self._cached_data = data
+        return True
+
+    def get_cached_data(self) -> dict:
+        """Get data loaded by load_index()."""
+        return getattr(self, '_cached_data', {})

@@ -222,8 +222,17 @@ class AnchorEngine:
         query_lower_wf = user_query.lower().strip()
         workflow_keywords = ['nasıl', 'süreç', 'adım', 'workflow', 'yapılır', 'işlem',
                             'how to', 'process', 'step', 'procedure', 'yöntem',
-                            'akış', 'pipeline', 'work', 'should i', 'best practice']
+                            'akış', 'pipeline', 'work', 'should i', 'best practice',
+                            'review', 'incident', 'deploy', 'release', 'story',
+                            'bug', 'fix', 'test', 'tdd', 'retro', 'refactor']
         is_workflow_query = any(kw in query_lower_wf for kw in workflow_keywords)
+        # Eğer tespit edilen topic'ler workflow rule'larına aitse de workflow query say
+        if not is_workflow_query and topics:
+            for t in topics:
+                tn = t.name.lower()
+                if any(wk in tn for wk in ['process', 'workflow', 'cycle', 'pipeline']):
+                    is_workflow_query = True
+                    break
         
         rules = self.store.query(topic_names, llm_output)
         if user_query.strip() and rules:
@@ -351,11 +360,14 @@ class AnchorEngine:
         """Runtime istatistikleri."""
         total = self._total_processed
         modified = self._total_modified
+        store_stats = self.store.stats() if hasattr(self.store, 'stats') else {}
         return {
-            'total_processed': total,
-            'total_modified': modified,
-            'modification_rate': (modified / total) if total else 0.0,
-            'store': self.store.stats if hasattr(self.store, 'stats') else {},
+            'engine': {
+                'total_processed': total,
+                'total_modified': modified,
+                'modification_rate': (modified / total) if total else 0.0,
+            },
+            'store': store_stats,
             'detector_avg_latency_us': getattr(self.detector, 'avg_latency_us', 0),
             'patcher_avg_latency_us': getattr(self.patcher, 'avg_latency_us', 0),
         }

@@ -124,7 +124,7 @@ def _match_check_variant(output_lower: str, variant: str) -> bool:
 def _match_check_fuzzy(output_lower: str, variant: str) -> bool:
     words = re.findall(r'\b\w+[/-]?\w*\b', output_lower)
     target = _normalize_text(variant)
-    if not target:
+    if not target or len(target) < 3:
         return False
     if ' ' in target:
         candidates = [' '.join(words[i:i + len(target.split())]) for i in range(max(0, len(words) - len(target.split()) + 1))]

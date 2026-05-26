@@ -83,10 +83,56 @@ class ScalableRuleStore:
     
     def build(self):
         """
-        Index'leri inşa et. Her zaman rebuild et (geliştirme modu).
+        Index'leri inşa et.
+        
+        Binary index varsa ve fresh ise → yükle (cold start < 50ms).
+        Yoksa veya stale ise → rebuild et.
         """
-        # Geliştirme modu: her zaman rebuild
+        # Binary index kontrolü
+        if not self._binman.is_stale():
+            data = self._binman.load()
+            if data is not None:
+                try:
+                    self._restore_from_index(data)
+                    self._built = True
+                    return
+                except Exception as e:
+                    logger.debug("Binary index restore failed (%s), rebuilding", e)
         self._rebuild()
+
+    def _restore_from_index(self, data: dict):
+        """Binary index'ten internal state'i geri yükle."""
+        # Shard-topic map
+        shard_map = data.get("shard_map", {})
+        self._shard_topic_map = shard_map if isinstance(shard_map, dict) else {}
+        
+        # Rule metadata
+        rule_meta_list = data.get("rule_metadata", [])
+        self._rule_meta = {}
+        for meta in rule_meta_list:
+            rid = meta.get("id", "")
+            if rid:
+                self._rule_meta[rid] = meta
+        
+        # Bloom filter — rebuild from rules since we can't pickle
+        self._bloom.build_from_rules(str(self.path))
+        
+        # Semantic index — rebuild from rules
+        self._semantic.fit(str(self.path))
+        
+        # Distinctive keyword index
+        kw_index = data.get("distinctive_keyword_index", {})
+        self._distinctive_keyword_index = kw_index if isinstance(kw_index, dict) else {}
+        self._rebuild_keyword_index_from_meta()
+        
+        # Router — already initialized in __init__
+        self._router = ShardRouter(str(self.path))
+        
+        logger.info(
+            "ScalableStore loaded from binary index: %d rules, %d topics, %d keywords",
+            len(self._rule_meta), len(self._shard_topic_map),
+            len(self._distinctive_keyword_index),
+        )
     
     def _pre_warm_model(self):
         """Embedding model'i eager yükle — ilk sorgu hızlı olsun."""
